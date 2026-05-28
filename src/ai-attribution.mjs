@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-const AI_PREFIX_RE = /^\[🤵‍♂️ - ([a-f0-9]{8,})\]\s*(.*)$/;
+const AI_EMOJI_PREFIX = '🤵‍♂️';
+const LEGACY_AI_PREFIX_RE = /^\[🤵‍♂️ - ([a-f0-9]{8,})\]\s*(.*)$/u;
+const NEW_AI_PREFIX_RE = /^🤵‍♂️\s+(.+)$/u;
+const HASH_LINE_RE = /^\[([a-f0-9]{8,})\](?:\n|$)/u;
 
 export function generateAiHash(input) {
   const seed = input || randomBytes(8).toString('hex');
@@ -8,24 +11,38 @@ export function generateAiHash(input) {
 }
 
 export function formatAiPrefix(hash) {
-  return `[🤵‍♂️ - ${hash}]`;
+  return AI_EMOJI_PREFIX;
 }
 
 export function addAiPrefix(name, hash) {
   if (parseAiPrefix(name)) return name;
-  return `${formatAiPrefix(hash)} ${name}`;
+  return `${formatAiPrefix(hash)} ${stripHashFromName(name)}`;
 }
 
-export function parseAiPrefix(name) {
-  if (typeof name !== 'string') return null;
-  const match = name.match(AI_PREFIX_RE);
-  if (!match) return null;
-  return { hash: match[1], baseName: match[2] };
+export function parseAiPrefix(text) {
+  if (typeof text !== 'string') return null;
+  const legacyMatch = text.match(LEGACY_AI_PREFIX_RE);
+  if (legacyMatch) return { hash: legacyMatch[1], baseName: legacyMatch[2], format: 'legacy' };
+
+  const lines = text.split('\n');
+  const newMatch = lines[0]?.match(NEW_AI_PREFIX_RE);
+  if (!newMatch) return null;
+  const baseName = stripHashFromName(newMatch[1]);
+  const hash = lines.slice(1).join('\n').match(HASH_LINE_RE)?.[1] ?? null;
+  return { hash, baseName, format: 'new' };
 }
 
 export function preserveAiPrefix(oldName, newName) {
   const parsed = parseAiPrefix(oldName) ?? parseAiPrefix(newName);
   const stripped = parseAiPrefix(newName)?.baseName ?? newName;
   const hash = parsed?.hash ?? generateAiHash(`${oldName ?? ''}:${newName ?? ''}`);
-  return `${formatAiPrefix(hash)} ${stripped}`;
+  return addAiPrefix(stripped, hash);
+}
+
+export function buildAiTextOps(hash, userNotes = '') {
+  return [{ insert: `[${hash}]\n${userNotes ? `${userNotes}\n` : ''}` }];
+}
+
+function stripHashFromName(name) {
+  return String(name ?? '').replace(HASH_LINE_RE, '').trim();
 }
