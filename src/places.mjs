@@ -10,10 +10,11 @@ const TIME_RE = /^\d{2}:\d{2}$/;
 const GOOGLE_FIELDS = [
   'id',
   'displayName',
+  'location',
   'formattedAddress',
   'shortFormattedAddress',
-  'location',
   'types',
+  'primaryType',
   'rating',
   'userRatingCount',
   'websiteUri',
@@ -21,8 +22,13 @@ const GOOGLE_FIELDS = [
   'businessStatus',
   'addressComponents',
   'regularOpeningHours',
-  'primaryType',
-  'photos',
+  'internationalPhoneNumber',
+  'nationalPhoneNumber',
+  'reviews',
+  'plusCode',
+  'utcOffsetMinutes',
+  'adrFormatAddress',
+  'iconMaskBaseUri',
 ].join(',');
 
 export async function searchPlace(opts = {}, query) {
@@ -266,10 +272,85 @@ export function toLegacy(v1 = {}, { photoUrls = [] } = {}) {
     geometry: { location: { lat: v1.location?.latitude, lng: v1.location?.longitude } },
     formatted_address: v1.formattedAddress || '',
     types: v1.types || [],
-    business_status: v1.businessStatus ?? null,
   };
+  addIfDefined(legacy, 'vicinity', v1.shortFormattedAddress);
+  addIfDefined(legacy, 'rating', v1.rating);
+  addIfDefined(legacy, 'user_ratings_total', v1.userRatingCount);
+  addIfDefined(legacy, 'website', v1.websiteUri);
+  addIfDefined(legacy, 'url', v1.googleMapsUri);
+  addIfDefined(legacy, 'business_status', v1.businessStatus);
+  addIfDefined(legacy, 'international_phone_number', v1.internationalPhoneNumber);
+  addIfDefined(legacy, 'formatted_phone_number', v1.nationalPhoneNumber);
+  addIfDefined(legacy, 'adr_address', v1.adrFormatAddress);
+  addIfDefined(legacy, 'utc_offset', v1.utcOffsetMinutes);
+  if (v1.iconMaskBaseUri) legacy.icon = `${v1.iconMaskBaseUri}.png`;
+  if (Array.isArray(v1.addressComponents)) {
+    legacy.address_components = v1.addressComponents.map(component => ({
+      long_name: component.longText,
+      short_name: component.shortText,
+      types: component.types || [],
+    }));
+  }
+  if (v1.plusCode) {
+    legacy.plus_code = {};
+    addIfDefined(legacy.plus_code, 'global_code', v1.plusCode.globalCode);
+    addIfDefined(legacy.plus_code, 'compound_code', v1.plusCode.compoundCode);
+  }
+  const reviews = toLegacyReviews(v1.reviews);
+  if (reviews) legacy.reviews = reviews;
+  const openingHours = toLegacyOpeningHours(v1.regularOpeningHours);
+  if (openingHours) legacy.opening_hours = openingHours;
   if (photoUrls.length > 0) legacy.photo_urls = photoUrls;
   return legacy;
+}
+
+export function toLegacyOpeningHours(v1OH) {
+  if (!v1OH) return undefined;
+  const periods = Array.isArray(v1OH.periods) ? v1OH.periods : [];
+  if (periods.length === 0) return undefined;
+  const isAlways = periods.length === 1
+    && periods[0].open?.day === 0
+    && periods[0].open?.hour === 0
+    && periods[0].open?.minute === 0
+    && !periods[0].close;
+  const legacyPeriods = isAlways
+    ? [0, 1, 2, 3, 4, 5, 6].map(day => ({ open: { day, time: '0000' } }))
+    : periods.map(period => {
+      const out = { open: { day: period.open.day, time: formatGoogleTime(period.open) } };
+      if (period.close) out.close = { day: period.close.day, time: formatGoogleTime(period.close) };
+      return out;
+    });
+  return {
+    periods: legacyPeriods,
+    weekday_text: v1OH.weekdayDescriptions || [],
+  };
+}
+
+function toLegacyReviews(reviews) {
+  if (!Array.isArray(reviews)) return undefined;
+  return reviews.map(review => dropUndefined({
+    author_name: review.authorAttribution?.displayName,
+    author_url: review.authorAttribution?.uri,
+    profile_photo_url: review.authorAttribution?.photoUri,
+    rating: review.rating,
+    relative_time_description: review.relativePublishTimeDescription,
+    text: review.text?.text || review.originalText?.text || '',
+    time: review.publishTime ? Math.floor(new Date(review.publishTime).getTime() / 1000) : undefined,
+    language: review.text?.languageCode,
+  }));
+}
+
+function formatGoogleTime(time = {}) {
+  const pad = value => String(value ?? 0).padStart(2, '0');
+  return `${pad(time.hour)}${pad(time.minute)}`;
+}
+
+function addIfDefined(target, key, value) {
+  if (value !== undefined) target[key] = value;
+}
+
+function dropUndefined(input) {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }
 
 function addNameOp(ops, secIdx, blockIdx, block, updates) {

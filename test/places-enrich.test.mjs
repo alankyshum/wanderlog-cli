@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseArgs } from '../bin/args.mjs';
 import { createCommandDispatcher } from '../src/commands.mjs';
 import { parseAiPrefix } from '../src/ai-attribution.mjs';
-import { toLegacy } from '../src/places.mjs';
+import { toLegacy, toLegacyOpeningHours } from '../src/places.mjs';
 import { TOKEN_VERSION, saveToken } from '../src/token-store.mjs';
 
 async function tmpConfigWithToken(t) {
@@ -24,7 +24,7 @@ async function tmpConfigWithToken(t) {
   return configDir;
 }
 
-test('toLegacy maps Google Places v1 details to minimal Wanderlog place shape', () => {
+test('toLegacy maps Google Places v1 details to full Wanderlog legacy place shape', () => {
   const legacy = toLegacy({
     id: 'places/fixture123',
     displayName: { text: 'Fixture Cafe' },
@@ -37,7 +37,13 @@ test('toLegacy maps Google Places v1 details to minimal Wanderlog place shape', 
     websiteUri: 'https://fixture.example',
     googleMapsUri: 'https://maps.google.com/?cid=fixture',
     businessStatus: 'OPERATIONAL',
+    internationalPhoneNumber: '+1 555-123-4567',
+    nationalPhoneNumber: '(555) 123-4567',
+    adrFormatAddress: '<span>123 Example Street</span>',
+    iconMaskBaseUri: 'https://maps.gstatic.com/mapfiles/place_api/icons/v2/cafe_pinlet',
+    utcOffsetMinutes: 540,
     addressComponents: [{ longText: 'Fixture City', shortText: 'Fixture', types: ['locality'] }],
+    plusCode: { globalCode: '8Q7XAAAA+AA', compoundCode: 'AAAA+AA Fixture City' },
     regularOpeningHours: {
       periods: [{ open: { day: 1, hour: 9, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } }],
       weekdayDescriptions: ['Monday: 9:00 AM – 6:00 PM'],
@@ -50,12 +56,104 @@ test('toLegacy maps Google Places v1 details to minimal Wanderlog place shape', 
     geometry: { location: { lat: 33.4996, lng: 126.5312 } },
     formatted_address: '123 Example Street, Fixture City',
     types: ['cafe', 'point_of_interest'],
+    vicinity: '123 Example Street',
+    rating: 4.7,
+    user_ratings_total: 123,
+    website: 'https://fixture.example',
+    url: 'https://maps.google.com/?cid=fixture',
     business_status: 'OPERATIONAL',
+    international_phone_number: '+1 555-123-4567',
+    formatted_phone_number: '(555) 123-4567',
+    adr_address: '<span>123 Example Street</span>',
+    icon: 'https://maps.gstatic.com/mapfiles/place_api/icons/v2/cafe_pinlet.png',
+    utc_offset: 540,
+    address_components: [{ long_name: 'Fixture City', short_name: 'Fixture', types: ['locality'] }],
+    plus_code: { global_code: '8Q7XAAAA+AA', compound_code: 'AAAA+AA Fixture City' },
+    opening_hours: {
+      periods: [{ open: { day: 1, time: '0900' }, close: { day: 1, time: '1800' } }],
+      weekday_text: ['Monday: 9:00 AM – 6:00 PM'],
+    },
   });
-  assert.equal('opening_hours' in legacy, false);
   assert.equal('photo_urls' in legacy, false);
-  assert.equal('address_components' in legacy, false);
-  assert.equal('vicinity' in legacy, false);
+});
+
+test('toLegacy opening_hours detects v1 24-hour period and expands all days', () => {
+  const legacy = toLegacyOpeningHours({
+    periods: [{ open: { day: 0, hour: 0, minute: 0 } }],
+    weekdayDescriptions: ['Monday: Open 24 hours'],
+  });
+
+  assert.deepEqual(legacy, {
+    periods: [0, 1, 2, 3, 4, 5, 6].map(day => ({ open: { day, time: '0000' } })),
+    weekday_text: ['Monday: Open 24 hours'],
+  });
+  assert.equal(legacy.periods.some(period => 'close' in period), false);
+});
+
+test('toLegacy opening_hours pads regular v1 times as HHMM strings', () => {
+  const legacy = toLegacyOpeningHours({
+    periods: [
+      { open: { day: 2, hour: 9, minute: 5 }, close: { day: 2, hour: 17, minute: 30 } },
+      { open: { day: 3, hour: 0, minute: 0 }, close: { day: 3, hour: 8, minute: 0 } },
+    ],
+  });
+
+  assert.deepEqual(legacy.periods, [
+    { open: { day: 2, time: '0905' }, close: { day: 2, time: '1730' } },
+    { open: { day: 3, time: '0000' }, close: { day: 3, time: '0800' } },
+  ]);
+});
+
+test('toLegacy omits opening_hours when v1 opening hours are missing', () => {
+  assert.equal(toLegacyOpeningHours(undefined), undefined);
+  assert.equal(toLegacyOpeningHours({}), undefined);
+  assert.equal('opening_hours' in toLegacy({
+    id: 'places/no-hours',
+    displayName: { text: 'No Hours' },
+    formattedAddress: 'No Hours Street',
+    location: { latitude: 1, longitude: 2 },
+  }), false);
+});
+
+test('toLegacy maps v1 reviews to legacy review fields and drops undefined values', () => {
+  const legacy = toLegacy({
+    id: 'places/reviewed',
+    displayName: { text: 'Reviewed Place' },
+    formattedAddress: 'Reviewed Street',
+    location: { latitude: 1, longitude: 2 },
+    reviews: [
+      {
+        authorAttribution: {
+          displayName: 'Fixture Reviewer',
+          uri: 'https://example.com/reviewer',
+          photoUri: 'https://example.com/reviewer.jpg',
+        },
+        rating: 5,
+        relativePublishTimeDescription: 'a month ago',
+        text: { text: 'Great stop', languageCode: 'en' },
+        publishTime: '2026-01-02T03:04:05Z',
+      },
+      {
+        originalText: { text: 'Original text fallback' },
+      },
+    ],
+  });
+
+  assert.deepEqual(legacy.reviews, [
+    {
+      author_name: 'Fixture Reviewer',
+      author_url: 'https://example.com/reviewer',
+      profile_photo_url: 'https://example.com/reviewer.jpg',
+      rating: 5,
+      relative_time_description: 'a month ago',
+      text: 'Great stop',
+      time: 1767323045,
+      language: 'en',
+    },
+    {
+      text: 'Original text fallback',
+    },
+  ]);
 });
 
 test('new prefix format roundtrips via ai-attribution parser with hash in notes text', () => {
