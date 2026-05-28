@@ -30,6 +30,13 @@ const GOOGLE_FIELDS = [
   'adrFormatAddress',
   'iconMaskBaseUri',
 ].join(',');
+const GOOGLE_STATUS_FIELDS = [
+  'id',
+  'displayName',
+  'businessStatus',
+  'googleMapsUri',
+].join(',');
+const CHECK_STATUS_CONCURRENCY = 10;
 
 export async function searchPlace(opts = {}, query) {
   return searchDestination(opts, query);
@@ -110,6 +117,64 @@ export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}
     googlePlaceId: legacy.place_id,
     ...normalizePlaceBlock(block, blockIndex),
   };
+}
+
+export async function checkPlaceStatuses(opts = {}, tripKey, details = {}) {
+  if (!tripKey) throw new UsageError('Usage: wlog places check-status <tripKey> [--json] [--google-key <key>]');
+  const apiKey = resolveGoogleKey(details.googleKey || opts.googleKey, 'Set --google-key or $GOOGLE_MAPS_API_KEY');
+  const trip = await getTrip(opts, tripKey);
+  const entries = collectPlaceStatusEntries(trip);
+  const statuses = await fetchPlaceStatuses(entries.map(entry => entry.place_id), {
+    apiKey,
+    fetchImpl: opts.fetch,
+  });
+
+  return entries.flatMap(entry => {
+    const detailsV1 = statuses.get(entry.place_id);
+    const businessStatus = detailsV1?.businessStatus;
+    if (!businessStatus || businessStatus === 'OPERATIONAL') return [];
+    const legacy = toLegacy(detailsV1);
+    return [{
+      section: entry.section,
+      'block.id': entry['block.id'],
+      name: entry.name || legacy.name || null,
+      place_id: entry.place_id,
+      businessStatus,
+      url: legacy.url || entry.url || null,
+    }];
+  });
+}
+
+export function collectPlaceStatusEntries(trip = {}) {
+  const normalizedSections = rawSections(trip);
+  const sections = normalizedSections.length > 0 ? normalizedSections : rawSections({ raw: trip });
+  const entries = [];
+  sections.forEach((section, sectionIndex) => {
+    const sectionLabel = section.heading ?? section.title ?? section.name ?? section.id ?? `section[${sectionIndex}]`;
+    const blocks = Array.isArray(section.blocks) ? section.blocks : [];
+    blocks.forEach((block, blockIndex) => {
+      const blockType = block?.type || 'block';
+      if (block?.place?.place_id) {
+        const role = blockType === 'place' ? `places[${blockIndex}]` : `${blockRole(block, blockIndex)}.place`;
+        addStatusEntry(entries, sectionLabel, role, block, block.place);
+      }
+      addStatusEntry(entries, sectionLabel, `${blockRole(block, blockIndex)}.depart`, block, block?.depart?.airport?.googlePlace);
+      addStatusEntry(entries, sectionLabel, `${blockRole(block, blockIndex)}.arrive`, block, block?.arrive?.airport?.googlePlace);
+      addStatusEntry(entries, sectionLabel, `${blockRole(block, blockIndex)}.pickUp.place`, block, block?.pickUp?.place);
+      addStatusEntry(entries, sectionLabel, `${blockRole(block, blockIndex)}.dropOff.place`, block, block?.dropOff?.place);
+    });
+  });
+  return entries;
+}
+
+export function formatCheckStatusReport(rows = []) {
+  return `${formatStatusTable(rows)}\n${formatCheckStatusSummary(rows)}`;
+}
+
+export function formatCheckStatusSummary(rows = []) {
+  const temporary = rows.filter(row => row.businessStatus === 'CLOSED_TEMPORARILY').length;
+  const permanent = rows.filter(row => row.businessStatus === 'CLOSED_PERMANENTLY').length;
+  return `Found ${rows.length} closed places: ${temporary} CLOSED_TEMPORARILY, ${permanent} CLOSED_PERMANENTLY`;
 }
 
 export async function updatePlace(opts = {}, tripKey, sectionId, blockIndex, updates = {}) {
@@ -225,6 +290,23 @@ export async function gSearch(query, { apiKey = process.env.GOOGLE_MAPS_API_KEY,
     throw new ApiError(`No Google Places result for "${query}": ${JSON.stringify(data).slice(0, 500)}`, response.status);
   }
   return data.places[0].id;
+}
+
+export async function gStatusDetails(placeId, { apiKey = process.env.GOOGLE_MAPS_API_KEY, fetchImpl = globalThis.fetch } = {}) {
+  if (!apiKey) throw new UsageError('Set --google-key or $GOOGLE_MAPS_API_KEY');
+  const url = new URL(`https://places.googleapis.com/v1/places/${placeId}`);
+  url.searchParams.set('fields', GOOGLE_STATUS_FIELDS);
+  url.searchParams.set('languageCode', 'en');
+  const response = await fetchImpl(url, {
+    headers: {
+      'X-Goog-Api-Key': apiKey,
+    },
+  });
+  const data = await response.json();
+  if (!response.ok || !data.id) {
+    throw new ApiError(`Google Places status details failed for ${placeId}: ${JSON.stringify(data).slice(0, 500)}`, response.status);
+  }
+  return data;
 }
 
 export async function gDetails(placeId, { apiKey = process.env.GOOGLE_MAPS_API_KEY, fetchImpl = globalThis.fetch } = {}) {
@@ -350,6 +432,51 @@ function addIfDefined(target, key, value) {
 
 function dropUndefined(input) {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function resolveGoogleKey(apiKey, missingMessage) {
+  const resolved = apiKey || process.env.GOOGLE_MAPS_API_KEY;
+  if (!resolved) throw new UsageError(missingMessage);
+  return resolved;
+}
+
+function addStatusEntry(entries, sectionLabel, role, block, place) {
+  const placeId = place?.place_id;
+  if (!placeId) return;
+  entries.push({
+    section: `${sectionLabel}/${role}`,
+    'block.id': block?.id ?? null,
+    name: place.name ?? place.displayName?.text ?? null,
+    place_id: placeId,
+    url: place.url ?? place.googleMapsUri ?? null,
+  });
+}
+
+function blockRole(block, blockIndex) {
+  const flightLabel = block?.flightNumber || block?.flightNo || block?.flight?.flightNumber || block?.flight?.number;
+  if (flightLabel) return String(flightLabel);
+  if (block?.type === 'hotel') return 'lodging';
+  if (block?.type === 'rentalCar') return `rentalCar[${blockIndex}]`;
+  return `${block?.type || 'block'}[${blockIndex}]`;
+}
+
+async function fetchPlaceStatuses(placeIds, opts) {
+  const uniquePlaceIds = [...new Set(placeIds.filter(Boolean))];
+  const details = new Map();
+  for (let start = 0; start < uniquePlaceIds.length; start += CHECK_STATUS_CONCURRENCY) {
+    const chunk = uniquePlaceIds.slice(start, start + CHECK_STATUS_CONCURRENCY);
+    const results = await Promise.all(chunk.map(placeId => gStatusDetails(placeId, opts)));
+    results.forEach((result, index) => details.set(chunk[index], result));
+  }
+  return details;
+}
+
+function formatStatusTable(rows) {
+  const keys = ['section', 'block.id', 'name', 'place_id', 'businessStatus', 'url'];
+  const render = row => keys.map(key => String(row[key] ?? '')).join(' | ');
+  const header = keys.join(' | ');
+  const separator = keys.map(() => '---').join(' | ');
+  return [header, separator, ...rows.map(render)].join('\n');
 }
 
 function addNameOp(ops, secIdx, blockIdx, block, updates) {

@@ -13,6 +13,17 @@ wlog auth status
 
 Auth is stored at `~/.config/wanderlog/token.json`; re-run `wlog auth login` on 401/403.
 
+## Command quick reference
+
+| Command | Purpose |
+| --- | --- |
+| `wlog auth login` | Browser-based login that stores `connect.sid`. |
+| `wlog trips list` / `wlog trips get <tripKey>` | Find and inspect trips. |
+| `wlog sections list <tripKey>` | Find section ids before mutations. |
+| `wlog places enrich-add <tripKey> <sectionId> --query "..."` | Add a Google-enriched place block. |
+| `wlog places check-status <tripKey> [--json]` | Sweep itinerary places, hotels, flights, and rental cars for non-operational Google business statuses. |
+| `wlog calendar subscribe <tripKey>` | Subscribe a trip to the stable calendar feed. |
+
 ## Browser auth login
 
 `wlog auth login` is browser-based and requires an installed compatible browser (Chrome first, then Chromium, Brave, or Microsoft Edge). It launches a temporary isolated browser profile, so it never touches the user's normal cookies/history or existing Chrome windows.
@@ -76,6 +87,16 @@ Implementation notes:
 - Inserts through Wanderlog `/applyOps` via `src/client.mjs`, then re-fetches the trip and verifies the target section block count incremented by one.
 - `--with-photos` expands up to three Google Places v1 photo media URLs into `photo_urls`.
 
+## Places check-status
+
+Before a trip, and after any reported closures, agents should sweep for replacements:
+
+```bash
+wlog places check-status <tripKey> --json
+```
+
+This reports only places whose Google Places `businessStatus` is present and not `OPERATIONAL`, including regular place blocks plus hotel, flight airport, and rental-car pickup/dropoff places. `--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
+
 ## AI attribution format
 
 AI-created/touched place titles use:
@@ -95,6 +116,7 @@ Parsers must remain backward-compatible with legacy names:
 ## Safety rules
 
 - List sections before mutating: `wlog sections list <tripKey>`.
+- Run `wlog places check-status <tripKey> --json` before a trip and after any reported closures, then use the result to propose replacements.
 - Never run live `enrich-add` against a populated production trip unless the user explicitly asks; it can create duplicates.
 - Do not expose cookies, token contents, or Google API keys.
 - Use `node --test test/` and `node --test worker/test/` before shipping CLI changes.

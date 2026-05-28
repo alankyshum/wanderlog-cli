@@ -91,6 +91,11 @@ async function dispatchSections(opts, subcommand, args) {
 async function dispatchPlaces(opts, subcommand, args) {
   const { requireAuth } = await import('./auth.mjs');
   const places = await import('./places.mjs');
+  if (subcommand === 'check-status') {
+    const rows = await places.checkPlaceStatuses(opts, args[0], { googleKey: opts.googleKey });
+    if (opts.format === 'json' || opts.json) return ok(rows);
+    return ok(places.formatCheckStatusReport(rows));
+  }
   await requireAuth(opts);
   switch (subcommand) {
     case 'search':
@@ -125,7 +130,7 @@ async function dispatchPlaces(opts, subcommand, args) {
     case 'list':
       return ok(await places.listPlaces(opts, args[0]));
     default:
-      throw new UsageError('Usage: wlog places <search|add|enrich-add|update|delete|move|list>');
+      throw new UsageError('Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list>');
   }
 }
 
@@ -204,7 +209,7 @@ FALLBACK
 `,
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
-    places: 'Usage: wlog places <search|add|enrich-add|update|delete|move|list> [tripKey] [options]',
+    places: 'Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]\n\nCHECK STATUS\n  wlog places check-status <tripKey> [--json] [--google-key <key>]',
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
   };
