@@ -6,8 +6,18 @@ import { deleteToken, getTokenPath, loadToken, saveToken } from './token-store.m
 const DEFAULT_BASE_URL = 'https://wanderlog.com';
 
 export async function login(opts = {}) {
-  const extracted = await extractCookies({ ...opts, cookieString: opts.cookieString || opts.cookie });
-  return validateAndSave({ ...opts, cookies: extracted.cookies, source: extracted.source });
+  const cookieString = opts.cookieString || opts.cookie;
+  const useBrowserFlow = !cookieString && !process.env.WANDERLOG_COOKIE;
+  const onStatus = opts.onStatus || (useBrowserFlow && shouldPrintProgress(opts) ? message => console.log(message) : undefined);
+  const extracted = await extractCookies({ ...opts, cookieString, onStatus });
+  return validateAndSave({
+    ...opts,
+    cookies: extracted.cookies,
+    source: extracted.source,
+    userId: opts.userId ?? extracted.userId,
+    allowUnknownUserId: opts.allowUnknownUserId || extracted.source === 'browser-cdp',
+    onStatus,
+  });
 }
 
 export async function status(opts = {}) {
@@ -71,11 +81,16 @@ export async function tokenPath(opts = {}) {
 async function validateAndSave(opts) {
   const now = new Date().toISOString();
   const client = createClient({ ...opts, cookies: opts.cookies });
-  const session = await validateSession(client, opts);
+  let session = { userId: opts.userId || null };
+  try {
+    session = await validateSession(client, opts);
+  } catch (err) {
+    if (!opts.allowUnknownUserId) throw err;
+  }
   const token = {
     version: 1,
     baseUrl: opts.baseUrl || DEFAULT_BASE_URL,
-    userId: session.userId || opts.userId,
+    userId: session.userId || opts.userId || null,
     createdAt: now,
     updatedAt: now,
     lastValidatedAt: now,
@@ -84,7 +99,13 @@ async function validateAndSave(opts) {
     cookies: opts.cookies,
   };
   await saveToken(opts, token);
-  return { userId: token.userId, source: token.source, expiresAt: token.expiresAt };
+  const tokenPath = await getTokenPath(opts);
+  opts.onStatus?.(`✓ Wrote ${tokenPath}`);
+  return { userId: token.userId, source: token.source, expiresAt: token.expiresAt, tokenPath };
+}
+
+function shouldPrintProgress(opts) {
+  return !opts.quiet && opts.format !== 'json' && !opts.json;
 }
 
 function findEarliestExpiry(cookies) {

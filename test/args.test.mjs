@@ -68,6 +68,15 @@ test('per-command flags parse with camelCase option names', () => {
   assert.equal(parsed.options.noAi, true);
 });
 
+test('auth login browser flow flags parse', () => {
+  const parsed = parseArgs(['auth', 'login', '--timeout', '10m', '--verbose']);
+  assert.equal(parsed.command, 'auth');
+  assert.equal(parsed.subcommand, 'login');
+  assert.deepEqual(parsed.positional, []);
+  assert.equal(parsed.options.timeout, '10m');
+  assert.equal(parsed.options.verbose, true);
+});
+
 test('positional capture keeps delete id separate from --confirm value', () => {
   const parsed = parseArgs(['trips', 'delete', 'lpwekdgnmmcqjkjo', '--confirm', 'lpwekdgnmmcqjkjo']);
   assert.deepEqual(parsed.positional, ['lpwekdgnmmcqjkjo']);

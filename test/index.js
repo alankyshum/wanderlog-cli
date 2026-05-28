@@ -1,5 +1,7 @@
 import './ai-attribution.test.mjs';
 import './args.test.mjs';
+import './auth.test.mjs';
+import './browser.test.mjs';
 import './client.test.mjs';
 import './commands.test.mjs';
 import './calendar.test.mjs';

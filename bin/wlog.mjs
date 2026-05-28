@@ -15,7 +15,7 @@ import { CLIError } from '../src/errors.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 async function main() {
   try {
@@ -88,7 +88,7 @@ GLOBAL OPTIONS
   --token-file <path>  Override token file path
 
 EXAMPLES
-  wlog auth login
+  wlog auth login     Open an isolated Chrome/Chromium browser login and save connect.sid
   wlog trips list
   wlog places enrich-add "Jeju" 21652664 --query "Handam Coastal Walk Jeju" --start 10:30 --end 12:30
   wlog calendar subscribe "Jeju"

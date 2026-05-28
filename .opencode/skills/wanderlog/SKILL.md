@@ -13,6 +13,45 @@ wlog auth status
 
 Auth is stored at `~/.config/wanderlog/token.json`; re-run `wlog auth login` on 401/403.
 
+## Browser auth login
+
+`wlog auth login` is browser-based and requires an installed compatible browser (Chrome first, then Chromium, Brave, or Microsoft Edge). It launches a temporary isolated browser profile, so it never touches the user's normal cookies/history or existing Chrome windows.
+
+Screenshot-style runbook:
+
+```text
+$ wlog auth login
+Opening Chrome to https://wanderlog.com/login ...
+Waiting for you to sign in (timeout: 5 min) ...
+
+[Chrome opens Wanderlog login]
+1. Sign in normally in the browser window.
+2. Let Wanderlog redirect away from /login.
+3. The CLI auto-detects the redirect; do not copy/paste cookies or press Enter.
+
+✓ Detected sign-in
+✓ Cookie captured (connect.sid, expires YYYY-MM-DD)
+✓ Wrote /Users/alanshum/.config/wanderlog/token.json
+```
+
+Then verify:
+
+```bash
+wlog auth status
+# authenticated: true
+# userId: <id if Wanderlog exposes it>
+```
+
+Flags:
+
+- `--timeout 10m` extends the default 5-minute sign-in window.
+- `--verbose` prints Chrome spawn, CDP connect, and frame navigation details.
+
+Fallback/error handling:
+
+- If no compatible browser is installed, the CLI says: `No compatible browser found. Install Google Chrome, Chromium, Brave, or Microsoft Edge, then run wlog auth login again.`
+- Manual fallback remains `wlog auth import-cookie --cookie 'connect.sid=...'`; do not remove or break it.
+
 ## Places enrich-add
 
 Add a Google-enriched place block without manually copying coordinates/address:

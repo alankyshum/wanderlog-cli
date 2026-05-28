@@ -33,7 +33,10 @@ test('unknown command throws CLIError with exit code 2', async () => {
 
 test('help mode resolves to command-specific handler text without service calls', async () => {
   const dispatcher = createCommandDispatcher({ help: true });
-  assert.match((await dispatcher.execute('auth', null, [])).data, /wlog auth/);
+  const authHelp = (await dispatcher.execute('auth', null, [])).data;
+  assert.match(authHelp, /wlog auth/);
+  assert.match(authHelp, /Chrome\/Chromium\/Brave\/Edge window with an isolated/);
+  assert.match(authHelp, /connect\.sid via CDP/);
   assert.match((await dispatcher.execute('trips', null, [])).data, /wlog trips/);
   assert.match((await dispatcher.execute('sections', null, [])).data, /wlog sections/);
   assert.match((await dispatcher.execute('places', null, [])).data, /wlog places.*enrich-add/);

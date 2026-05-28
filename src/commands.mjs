@@ -189,7 +189,18 @@ function joinArgs(args) {
 
 function helpFor(command) {
   const help = {
-    auth: 'Usage: wlog auth <login|status|logout|import-cookie|token-path> [options]',
+    auth: `Usage: wlog auth <login|status|logout|import-cookie|token-path> [options]
+
+AUTH LOGIN
+  wlog auth login [--timeout 5m] [--verbose]
+
+  Opens a real installed Chrome/Chromium/Brave/Edge window with an isolated
+  temporary profile, waits for Wanderlog sign-in, captures connect.sid via CDP,
+  then writes ~/.config/wanderlog/token.json. No cookie copy-paste required.
+
+FALLBACK
+  wlog auth import-cookie --cookie 'connect.sid=...'
+`,
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
     places: 'Usage: wlog places <search|add|enrich-add|update|delete|move|list> [tripKey] [options]',

@@ -30,7 +30,28 @@ This directory contains the in-repo `wlog` CLI for Wanderlog itinerary managemen
 
 ## Auth design
 
-`wlog auth login` obtains Wanderlog browser cookies through `src/browser.mjs` unless a cookie string is supplied. The token store writes a schema-versioned JSON object to `~/.config/wanderlog/token.json` with `0600` file permissions and a `0700` config directory. The CLI sends cookies as a `Cookie` header; it does not print cookie values in normal output.
+`wlog auth login` opens the user's installed Chrome/Chromium/Brave/Edge binary at `https://wanderlog.com/login` with a temporary isolated profile, enables Chrome DevTools Protocol (CDP) on a free local port, waits for top-level navigation away from `/login`, then captures the `connect.sid` cookie with `Network.getCookies`. It does not read or modify the user's main Chrome profile, cookies, history, or already-running browser session.
+
+Expected UX:
+
+```bash
+wlog auth login
+# Opening Chrome to https://wanderlog.com/login ...
+# Waiting for you to sign in (timeout: 5 min) ...
+# ✓ Detected sign-in
+# ✓ Cookie captured (connect.sid, expires YYYY-MM-DD)
+# ✓ Wrote ~/.config/wanderlog/token.json
+```
+
+Useful flags:
+
+- `--timeout 10m` (or milliseconds / seconds like `300000`, `30s`) extends the 5 minute default.
+- `--verbose` logs Chrome spawn/CDP discovery/frame navigation details.
+- Manual fallback remains `wlog auth import-cookie --cookie 'connect.sid=...'`.
+
+If no compatible browser is found, install Google Chrome, Chromium, Brave, or Microsoft Edge and rerun `wlog auth login`.
+
+The token store writes a schema-versioned JSON object to `~/.config/wanderlog/token.json` with `0600` file permissions and a `0700` config directory. The CLI sends cookies as a `Cookie` header; it does not print cookie values in normal output.
 
 Auth failures from Wanderlog (`401`/`403`) are normalized to `AuthExpiredError` with exit code `3`, which tells users to run `wlog auth login` again.
 
