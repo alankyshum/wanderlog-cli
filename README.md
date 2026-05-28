@@ -66,7 +66,7 @@ Mutations use fetch-before-mutate:
 
 Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
 
-AI-created/touched place names now use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). The attribution hash moves to the first line of the rich-text note: `[{ insert: '[<hash>]\n' + notes + '\n' }]`. Parsers remain backward-compatible with legacy names shaped like `[🤵‍♂️ - <hash>] <Name>`.
+AI-created/touched place names now use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). Place notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted. Parsers remain backward-compatible with legacy names shaped like `[🤵‍♂️ - <hash>] <Name>`.
 
 ## Enriched Google Places add
 
@@ -79,7 +79,7 @@ wlog places enrich-add lpwekdgnmmcqjkjo 21652664 \
   --start 10:30 --end 12:30
 ```
 
-Flags: `--query` is required. Optional flags are `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, and `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`). `photo_urls` is currently intentionally empty; v1 photo media URL expansion is not implemented yet.
+Flags: `--query` is required. Optional flags are `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
 
 ## Where to add new commands
 

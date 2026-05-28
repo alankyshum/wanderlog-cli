@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseArgs } from '../bin/args.mjs';
 import { createCommandDispatcher } from '../src/commands.mjs';
 import { parseAiPrefix } from '../src/ai-attribution.mjs';
-import { toLegacy, toLegacyOpeningHours } from '../src/places.mjs';
+import { addPlace, toLegacy, toLegacyOpeningHours } from '../src/places.mjs';
 import { TOKEN_VERSION, saveToken } from '../src/token-store.mjs';
 
 async function tmpConfigWithToken(t) {
@@ -156,9 +156,10 @@ test('toLegacy maps v1 reviews to legacy review fields and drops undefined value
   ]);
 });
 
-test('new prefix format roundtrips via ai-attribution parser with hash in notes text', () => {
-  const parsed = parseAiPrefix('🤵‍♂️ Fixture Cafe\n[deadbeef]\nBreakfast stop\n');
-  assert.deepEqual(parsed, { hash: 'deadbeef', baseName: 'Fixture Cafe', format: 'new' });
+test('new prefix format roundtrips via ai-attribution parser without note hash', () => {
+  const parsed = parseAiPrefix('🤵‍♂️ Fixture Cafe');
+  assert.deepEqual(parsed, { hash: null, baseName: 'Fixture Cafe', format: 'new' });
+  assert.deepEqual(parseAiPrefix('[🤵‍♂️ - abc12345] Fixture Cafe'), { hash: 'abc12345', baseName: 'Fixture Cafe', format: 'legacy' });
 });
 
 test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
@@ -239,8 +240,120 @@ test('enrich-add command inserts enriched block and verifies block count increme
   assert.equal(insertedBlocks.length, 1);
   assert.equal(insertedBlocks[0].place.place_id, 'places/fixture123');
   assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
-  assert.match(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '\n' }]);
+  assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
   assert.deepEqual(JSON.parse(fetches.find(entry => entry.url.includes('/applyOps')).init.body).ops[0].p, ['itinerary', 'sections', 0, 'blocks', 0]);
+});
+
+test('enrich-add command stores only user notes in text ops', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/fixture123', displayName: { text: 'Fixture Cafe' } }] });
+    }
+    if (String(url).includes('/v1/places/places/fixture123')) {
+      return jsonResponse({
+        id: 'places/fixture123',
+        displayName: { text: 'Fixture Cafe' },
+        formattedAddress: '123 Example Street, Fixture City',
+        location: { latitude: 33.4996, longitude: 126.5312 },
+        types: ['cafe'],
+      });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY', query: 'Fixture Cafe Jeju', notes: 'Breakfast stop' }).execute(
+    'places',
+    'enrich-add',
+    ['TESTTRIP1', 'sec-day-1'],
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: 'Breakfast stop\n' }]);
+  assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
+});
+
+test('plain add command AI-prefixes title and leaves notes unprefixed', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const insertedBlocks = [];
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripFixture(insertedBlocks));
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await addPlace({ configDir }, 'TESTTRIP1', 'sec-day-1', {
+    name: 'Fixture Cafe',
+    lat: '33.4996',
+    lng: '126.5312',
+    address: '123 Example Street, Fixture City',
+    notes: 'Breakfast stop',
+  });
+
+  assert.equal(result.name, '🤵‍♂️ Fixture Cafe');
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: 'Breakfast stop\n' }]);
+  assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
+});
+
+test('plain add command without notes stores only blank line text op', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const insertedBlocks = [];
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripFixture(insertedBlocks));
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await addPlace({ configDir }, 'TESTTRIP1', 'sec-day-1', {
+    name: 'Fixture Cafe',
+    lat: '33.4996',
+    lng: '126.5312',
+    address: '123 Example Street, Fixture City',
+  });
+
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '\n' }]);
+  assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
 });
 
 test('enrich-add --with-photos expands top three v1 photo media URLs', async t => {

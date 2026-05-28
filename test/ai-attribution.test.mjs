@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
   addAiPrefix,
-  buildAiTextOps,
   formatAiPrefix,
   generateAiHash,
   parseAiPrefix,
@@ -36,16 +35,17 @@ test('parseAiPrefix extracts legacy hash and bare base name', () => {
   assert.equal(parseAiPrefix('Fixture Cafe'), null);
 });
 
-test('new AI prefix format uses emoji title and hash in first note line', () => {
-  const name = addAiPrefix('Fixture Cafe', 'deadbeef');
-  const text = buildAiTextOps('deadbeef', 'Breakfast stop');
+test('new AI prefix format uses emoji title and plain user notes', () => {
+  const name = addAiPrefix('Fixture Cafe');
   assert.equal(name, '🤵‍♂️ Fixture Cafe');
-  assert.deepEqual(text, [{ insert: '[deadbeef]\nBreakfast stop\n' }]);
   assert.deepEqual(parseAiPrefix(name), { hash: null, baseName: 'Fixture Cafe', format: 'new' });
-  assert.deepEqual(parseAiPrefix(`${name}\n${text[0].insert}`), { hash: 'deadbeef', baseName: 'Fixture Cafe', format: 'new' });
 });
 
-test('preserveAiPrefix keeps existing hash when renaming and generates one when absent', () => {
+test('new AI prefix format roundtrips without a hash', () => {
+  assert.deepEqual(parseAiPrefix(addAiPrefix('Foo')), { hash: null, baseName: 'Foo', format: 'new' });
+});
+
+test('preserveAiPrefix preserves AI marker when renaming either format', () => {
   assert.equal(
     preserveAiPrefix('[🤵‍♂️ - deadbeef] Old Name', 'New Name'),
     '🤵‍♂️ New Name',

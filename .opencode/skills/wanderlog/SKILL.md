@@ -74,21 +74,17 @@ Implementation notes:
 - Uses Google Places v1 Text Search + Place Details.
 - Maps v1 details into Wanderlog's legacy `place.{name, place_id, geometry.location, formatted_address, vicinity, rating, user_ratings_total, website, address_components, opening_hours, types, url, business_status, photo_urls}` shape.
 - Inserts through Wanderlog `/applyOps` via `src/client.mjs`, then re-fetches the trip and verifies the target section block count incremented by one.
-- `photo_urls` is intentionally `[]` until v1 photo media URL support is added.
+- `--with-photos` expands up to three Google Places v1 photo media URLs into `photo_urls`.
 
 ## AI attribution format
 
-New AI-created/touched place titles use:
+AI-created/touched place titles use:
 
 ```text
 🤵‍♂️ <Name>
 ```
 
-The attribution hash belongs in the first note/text op line:
-
-```js
-text.ops = [{ insert: '[<hash>]\n' + (userNotes ? userNotes + '\n' : '') }]
-```
+New place notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided. The older notes-prefix hash format is no longer emitted because it polluted Wanderlog card subtitles.
 
 Parsers must remain backward-compatible with legacy names:
 

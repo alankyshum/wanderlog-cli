@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { loadToken } from './token-store.mjs';
 import { ApiError, ConfirmRequiredError, NotFoundError, UsageError } from './errors.mjs';
 import { normalizePlaceBlock } from './models.mjs';
-import { addAiPrefix, buildAiTextOps, generateAiHash, preserveAiPrefix } from './ai-attribution.mjs';
+import { addAiPrefix, preserveAiPrefix } from './ai-attribution.mjs';
 import { getTrip, searchDestination, applyTripOps } from './trips.mjs';
 import { findSectionIndex, parseIndex, rawSections, sectionPath } from './sections.mjs';
 
@@ -168,18 +168,17 @@ export async function movePlace(opts = {}, tripKey, fromSectionId, blockIndex, t
 }
 
 function buildPlaceBlock({ name, lat, lng, address, notes, startTime, endTime, ai, userId }) {
-  const hash = generateAiHash();
   return {
     id: randomInt(100000000, 999999999),
     type: 'place',
     place: {
-      name: ai ? addAiPrefix(name, hash) : name,
+      name: ai ? addAiPrefix(name) : name,
       place_id: null,
       geometry: { location: { lat, lng } },
       formatted_address: address,
       types: ['point_of_interest'],
     },
-    text: { ops: ai ? buildAiTextOps(hash, notes) : [{ insert: `${notes || ''}\n` }] },
+    text: { ops: buildTextOps(notes) },
     addedBy: { type: 'user', userId },
     imageSize: 'small',
     upvotedBy: [],
@@ -191,15 +190,15 @@ function buildPlaceBlock({ name, lat, lng, address, notes, startTime, endTime, a
 }
 
 function buildEnrichedPlaceBlock({ legacy, query, notes, startTime, endTime, ai, userId }) {
-  const hash = generateAiHash(query);
+  void query;
   return {
     id: randomInt(100000000, 999999999),
     type: 'place',
     place: {
       ...legacy,
-      name: ai ? addAiPrefix(legacy.name, hash) : legacy.name,
+      name: ai ? addAiPrefix(legacy.name) : legacy.name,
     },
-    text: { ops: ai ? buildAiTextOps(hash, notes) : [{ insert: `${notes || ''}\n` }] },
+    text: { ops: buildTextOps(notes) },
     addedBy: { type: 'user', userId },
     imageSize: 'small',
     upvotedBy: [],
@@ -358,6 +357,10 @@ function addNameOp(ops, secIdx, blockIdx, block, updates) {
   const oldName = block.place?.name ?? '';
   const nextName = preserveAiPrefix(oldName, updates.name);
   addReplaceOp(ops, sectionPath(secIdx, 'blocks', blockIdx, 'place', 'name'), nextName, oldName);
+}
+
+function buildTextOps(userNotes = '') {
+  return [{ insert: `${userNotes || ''}\n` }];
 }
 
 function addSimplePlaceOp(ops, secIdx, blockIdx, block, updates, key, pathTail) {

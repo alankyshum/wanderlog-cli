@@ -43,12 +43,23 @@ test('extractAiHash and stripAiPrefix handle AI-prefixed names', () => {
   assert.equal(stripAiPrefix('Museum of Fixtures'), 'Museum of Fixtures');
 });
 
-test('normalizePlaceBlock reads new AI hash format from first text line', () => {
+test('normalizePlaceBlock detects new AI prefix without reading hash from text', () => {
   const block = normalizePlaceBlock({
     type: 'place',
     place: { name: '🤵‍♂️ Test Harbor Cafe' },
-    text: { ops: [{ insert: '[deadbeef]\nBreakfast and planning notes\n' }] },
+    text: { ops: [{ insert: 'Breakfast and planning notes\n' }] },
   }, 0);
   assert.equal(block.hasAiPrefix, true);
-  assert.equal(block.aiHash, 'deadbeef');
+  assert.equal(block.aiHash, null);
+  assert.equal(block.notes, 'Breakfast and planning notes');
+});
+
+test('normalizePlaceBlock does not treat note hash line as AI attribution', () => {
+  const block = normalizePlaceBlock({
+    type: 'place',
+    place: { name: 'Test Harbor Cafe' },
+    text: { ops: [{ insert: '[deadbeef]\nBreakfast and planning notes\n' }] },
+  }, 0);
+  assert.equal(block.hasAiPrefix, false);
+  assert.equal(block.aiHash, null);
 });

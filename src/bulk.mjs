@@ -44,9 +44,8 @@ function collectAiMatches(trip, hashPrefix) {
     const blocks = Array.isArray(section.blocks) ? section.blocks : [];
     blocks.forEach((block, blockIndex) => {
       const parsed = parseAiPrefix(block.place?.name ?? block.name);
-      const textHash = extractHashFromText(block.text);
-      const hash = parsed?.hash ?? textHash;
-      if (!parsed && !hash) return;
+      const hash = parsed?.hash ?? null;
+      if (!parsed) return;
       if (hashPrefix && !hash?.startsWith(hashPrefix)) return;
       matches.push({
         secIdx,
@@ -62,11 +61,6 @@ function collectAiMatches(trip, hashPrefix) {
     });
   });
   return matches;
-}
-
-function extractHashFromText(text) {
-  const firstInsert = text?.ops?.[0]?.insert;
-  return typeof firstInsert === 'string' ? firstInsert.match(/^\[([a-f0-9]{8,})\](?:\n|$)/u)?.[1] ?? null : null;
 }
 
 function buildDeleteOps(matches) {

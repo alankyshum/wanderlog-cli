@@ -15,7 +15,7 @@ import { CLIError } from '../src/errors.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const VERSION = '0.3.2';
+const VERSION = '0.3.3';
 
 async function main() {
   try {

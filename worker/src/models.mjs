@@ -1,7 +1,6 @@
 // VENDORED from .opencode/skills/wanderlog/src/models.mjs — keep in sync.
 const LEGACY_AI_PREFIX_RE = /^\[🤵‍♂️ - ([a-f0-9]{8,})\]\s*(.*)$/u;
 const NEW_AI_PREFIX_RE = /^🤵‍♂️\s+(.+)$/u;
-const HASH_LINE_RE = /^\[([a-f0-9]{8,})\](?:\n|$)/u;
 
 export function normalizeTripSummary(raw = {}) {
   return {
@@ -46,7 +45,7 @@ export function normalizeSection(raw = {}) {
 export function normalizePlaceBlock(raw = {}, blockIndex = 0) {
   const place = raw.place ?? raw;
   const name = place.name ?? raw.name ?? null;
-  const hash = extractAiHash(name) ?? extractAiHashFromText(raw.text);
+  const hash = extractAiHash(name);
   return {
     blockIndex,
     id: raw.id ?? place.id ?? place.place_id ?? null,
@@ -59,7 +58,7 @@ export function normalizePlaceBlock(raw = {}, blockIndex = 0) {
     startTime: raw.startTime ?? raw.start_time ?? null,
     endTime: raw.endTime ?? raw.end_time ?? null,
     addedBy: raw.addedBy ?? raw.added_by ?? null,
-    hasAiPrefix: Boolean(hash),
+    hasAiPrefix: hasAiPrefix(name),
     aiHash: hash,
   };
 }
@@ -74,9 +73,8 @@ export function stripAiPrefix(name) {
   return name.match(LEGACY_AI_PREFIX_RE)?.[2] ?? name.match(NEW_AI_PREFIX_RE)?.[1] ?? name;
 }
 
-function extractAiHashFromText(text) {
-  const firstInsert = text?.ops?.[0]?.insert;
-  return typeof firstInsert === 'string' ? firstInsert.match(HASH_LINE_RE)?.[1] ?? null : null;
+function hasAiPrefix(name) {
+  return typeof name === 'string' && (LEGACY_AI_PREFIX_RE.test(name) || NEW_AI_PREFIX_RE.test(name));
 }
 
 function normalizeDestination(raw) {
