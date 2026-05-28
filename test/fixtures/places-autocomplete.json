@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Fixture Harbor Cafe",
+    "formatted_address": "123 Example Street, Fixture City",
+    "geometry": { "location": { "lat": 33.4996, "lng": 126.5312 } },
+    "place_id": "fixture-place-001",
+    "types": ["cafe", "food", "point_of_interest"]
+  }
+]

@@ -1,0 +1,27 @@
+# Local Wanderlog auth — never commit
+.env
+.env.*
+token.json
+.wlog-token*
+**/token.json
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Wrangler (Cloudflare Worker tooling) local state
+.wrangler/
+worker/.dev.vars
+worker/wrangler.toml.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~

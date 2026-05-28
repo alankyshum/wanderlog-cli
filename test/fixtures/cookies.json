@@ -1,0 +1,9 @@
+[
+  {
+    "name": "connect.sid",
+    "value": "FAKEVALUE",
+    "domain": "wanderlog.com",
+    "path": "/",
+    "expires": 4102444800
+  }
+]

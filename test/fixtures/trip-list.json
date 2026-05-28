@@ -1,0 +1,20 @@
+[
+  {
+    "id": "TESTTRIP1",
+    "key": "TESTTRIP1",
+    "title": "Fixture Coast Trip",
+    "startDate": "2026-04-01",
+    "endDate": "2026-04-03",
+    "destination": { "name": "Fixture City" },
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "TESTTRIP2",
+    "key": "TESTTRIP2",
+    "title": "Mock Mountain Weekend",
+    "startDate": "2026-05-10",
+    "endDate": "2026-05-12",
+    "destination": { "name": "Mock Valley" },
+    "updatedAt": "2026-01-02T00:00:00.000Z"
+  }
+]

@@ -1,0 +1,116 @@
+{
+  "tripPlan": {
+    "id": "TESTTRIP1",
+    "key": "TESTTRIP1",
+    "planKey": "TESTTRIP1",
+    "title": "Fixture Coast Trip",
+    "startDate": "2026-04-01",
+    "endDate": "2026-04-03",
+    "timezone": "Asia/Seoul",
+    "geoIds": [10101],
+    "destination": { "name": "Fixture City", "geoId": 10101 },
+    "itinerary": {
+      "sections": [
+        {
+          "id": "sec-day-1",
+          "heading": "Day 1 - Arrival",
+          "type": "normal",
+          "mode": "dayPlan",
+          "blocks": [
+            {
+              "id": "block-001",
+              "type": "place",
+              "place": {
+                "id": "place-001",
+                "name": "[🤵‍♂️ - deadbeef] Test Harbor Cafe",
+                "place_id": "fixture-place-001",
+                "formatted_address": "123 Example Street, Fixture City",
+                "geometry": { "location": { "lat": 33.4996, "lng": 126.5312 } },
+                "types": ["cafe", "food"]
+              },
+              "text": { "ops": [{ "insert": "Breakfast and planning notes\n" }] },
+              "startTime": "09:00",
+              "endTime": "10:30"
+            },
+            {
+              "id": "block-002",
+              "type": "place",
+              "place": {
+                "id": "place-002",
+                "name": "Museum of Fixtures",
+                "place_id": "fixture-place-002",
+                "formatted_address": "200 Sample Road, Fixture City",
+                "geometry": { "location": { "lat": 33.501, "lng": 126.535 } },
+                "types": ["museum", "point_of_interest"]
+              },
+              "text": { "ops": [{ "insert": "No fixed time\n" }] },
+              "startTime": null,
+              "endTime": null
+            }
+          ]
+        },
+        {
+          "id": "sec-day-2",
+          "heading": "Day 2 - East Loop",
+          "type": "normal",
+          "mode": "dayPlan",
+          "blocks": [
+            {
+              "id": "block-003",
+              "type": "place",
+              "place": {
+                "id": "place-003",
+                "name": "Fixture Sunrise Peak",
+                "place_id": "fixture-place-003",
+                "formatted_address": "Sunrise Trail, Fixture County",
+                "geometry": { "location": { "lat": 33.458, "lng": 126.942 } },
+                "types": ["natural_feature", "tourist_attraction"]
+              },
+              "text": { "ops": [{ "insert": "Bring snacks, water; check weather\n" }] },
+              "startTime": "08:15",
+              "endTime": "10:00"
+            },
+            {
+              "id": "block-004",
+              "type": "place",
+              "place": {
+                "id": "place-004",
+                "name": "Sample Noodle House",
+                "place_id": "fixture-place-004",
+                "formatted_address": "45 Test Market Lane, Fixture City",
+                "geometry": { "location": { "lat": 33.51, "lng": 126.54 } },
+                "types": ["restaurant", "food"]
+              },
+              "text": { "ops": [{ "insert": "Lunch reservation placeholder\n" }] },
+              "startTime": "12:30",
+              "endTime": "13:30"
+            }
+          ]
+        },
+        {
+          "id": "sec-day-3",
+          "heading": "Day 3 - Slow Morning",
+          "type": "normal",
+          "mode": "dayPlan",
+          "blocks": [
+            {
+              "id": "block-005",
+              "type": "place",
+              "place": {
+                "id": "place-005",
+                "name": "Fixture Beach Walk",
+                "place_id": "fixture-place-005",
+                "formatted_address": "Mock Beach Path, Fixture City",
+                "geometry": { "location": { "lat": 33.49, "lng": 126.5 } },
+                "types": ["park", "tourist_attraction"]
+              },
+              "text": { "ops": [{ "insert": "Leave the rest of the day empty\n" }] },
+              "startTime": "10:00",
+              "endTime": "11:00"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
