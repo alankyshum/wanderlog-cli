@@ -22,17 +22,15 @@ test('formatAiPrefix produces exact visible prefix shape', () => {
 
 test('addAiPrefix adds a prefix when missing and does not duplicate existing prefix', () => {
   assert.equal(addAiPrefix('Fixture Cafe', 'deadbeef'), '🤵‍♂️ Fixture Cafe');
-  assert.equal(addAiPrefix('[🤵‍♂️ - deadbeef] Fixture Cafe', 'badc0ffe'), '[🤵‍♂️ - deadbeef] Fixture Cafe');
   assert.equal(addAiPrefix('🤵‍♂️ Fixture Cafe', 'badc0ffe'), '🤵‍♂️ Fixture Cafe');
 });
 
-test('parseAiPrefix extracts legacy hash and bare base name', () => {
-  assert.deepEqual(parseAiPrefix('[🤵‍♂️ - deadbeef] Fixture Cafe'), {
-    hash: 'deadbeef',
-    baseName: 'Fixture Cafe',
-    format: 'legacy',
-  });
+test('parseAiPrefix ignores unprefixed names', () => {
   assert.equal(parseAiPrefix('Fixture Cafe'), null);
+});
+
+test('parseAiPrefix does not recognize removed bracketed legacy names', () => {
+  assert.equal(parseAiPrefix('[🤵‍♂️ - deadbeef] Fixture Cafe'), null);
 });
 
 test('new AI prefix format uses emoji title and plain user notes', () => {
@@ -45,11 +43,7 @@ test('new AI prefix format roundtrips without a hash', () => {
   assert.deepEqual(parseAiPrefix(addAiPrefix('Foo')), { hash: null, baseName: 'Foo', format: 'new' });
 });
 
-test('preserveAiPrefix preserves AI marker when renaming either format', () => {
-  assert.equal(
-    preserveAiPrefix('[🤵‍♂️ - deadbeef] Old Name', 'New Name'),
-    '🤵‍♂️ New Name',
-  );
+test('preserveAiPrefix preserves AI marker when renaming new-format names', () => {
   assert.equal(preserveAiPrefix('🤵‍♂️ Old Name', 'New Name'), '🤵‍♂️ New Name');
   assert.equal(preserveAiPrefix('Old Name', 'New Name'), '🤵‍♂️ New Name');
 });

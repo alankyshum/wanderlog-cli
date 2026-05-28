@@ -19,7 +19,7 @@ test('generateIcs returns a VCALENDAR with visible AI-prefixed summary', () => {
   const ics = generateIcs({ trips: [baseTrip()], subscriptionVersion: 7 });
   assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
   assert.match(ics, /\r\nEND:VCALENDAR\r\n$/);
-  assert.match(unfold(ics), /SUMMARY:\[🤵‍♂️ - deadbeef\] Test Harbor Cafe/);
+  assert.match(unfold(ics), /SUMMARY:🤵‍♂️ Test Harbor Cafe/);
 });
 
 test('UID uses stable wlog trip-section-block format', () => {

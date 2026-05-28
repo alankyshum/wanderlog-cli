@@ -66,7 +66,7 @@ Mutations use fetch-before-mutate:
 
 Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
 
-AI-created/touched place names now use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). Place notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted. Parsers remain backward-compatible with legacy names shaped like `[🤵‍♂️ - <hash>] <Name>`.
+AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). Place notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
 
 ## Enriched Google Places add
 

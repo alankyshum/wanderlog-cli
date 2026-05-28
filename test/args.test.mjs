@@ -54,7 +54,6 @@ test('per-command flags parse with camelCase option names', () => {
     '--start-date', '2026-04-01',
     '--end-date', '2026-04-03',
     '--to-index', '2',
-    '--hash', 'deadbeef',
     '--no-ai',
     '--show-unknown',
   ]);
@@ -65,7 +64,6 @@ test('per-command flags parse with camelCase option names', () => {
   assert.equal(parsed.options.startDate, '2026-04-01');
   assert.equal(parsed.options.endDate, '2026-04-03');
   assert.equal(parsed.options.toIndex, '2');
-  assert.equal(parsed.options.hash, 'deadbeef');
   assert.equal(parsed.options.noAi, true);
   assert.equal(parsed.options.showUnknown, true);
 });

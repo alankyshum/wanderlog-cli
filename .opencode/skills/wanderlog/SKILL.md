@@ -112,13 +112,7 @@ AI-created/touched place titles use:
 🤵‍♂️ <Name>
 ```
 
-New place notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided. The older notes-prefix hash format is no longer emitted because it polluted Wanderlog card subtitles.
-
-Parsers must remain backward-compatible with legacy names:
-
-```text
-[🤵‍♂️ - <hash>] <Name>
-```
+New place notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided.
 
 ## Safety rules
 

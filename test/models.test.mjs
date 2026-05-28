@@ -24,7 +24,7 @@ test('normalizeSection extracts id, heading, mode, and block count', () => {
 
 test('normalizePlaceBlock pulls place fields and block index', () => {
   const block = normalizePlaceBlock(fixture.tripPlan.itinerary.sections[0].blocks[0], 0);
-  assert.equal(block.name, '[🤵‍♂️ - deadbeef] Test Harbor Cafe');
+  assert.equal(block.name, '🤵‍♂️ Test Harbor Cafe');
   assert.equal(block.lat, 33.4996);
   assert.equal(block.lng, 126.5312);
   assert.equal(block.address, '123 Example Street, Fixture City');
@@ -35,12 +35,19 @@ test('normalizePlaceBlock pulls place fields and block index', () => {
 });
 
 test('extractAiHash and stripAiPrefix handle AI-prefixed names', () => {
-  const name = '[🤵‍♂️ - deadbeef] Test Harbor Cafe';
-  assert.equal(extractAiHash(name), 'deadbeef');
+  const name = '🤵‍♂️ Test Harbor Cafe';
+  assert.equal(extractAiHash(name), null);
   assert.equal(stripAiPrefix(name), 'Test Harbor Cafe');
   assert.equal(stripAiPrefix('🤵‍♂️ Test Harbor Cafe'), 'Test Harbor Cafe');
   assert.equal(extractAiHash('Museum of Fixtures'), null);
   assert.equal(stripAiPrefix('Museum of Fixtures'), 'Museum of Fixtures');
+});
+
+test('legacy bracketed AI names are not treated as AI-prefixed', () => {
+  const block = normalizePlaceBlock({ place: { name: '[🤵‍♂️ - deadbeef] Test Harbor Cafe' } }, 0);
+  assert.equal(block.hasAiPrefix, false);
+  assert.equal(block.aiHash, null);
+  assert.equal(stripAiPrefix(block.name), '[🤵‍♂️ - deadbeef] Test Harbor Cafe');
 });
 
 test('normalizePlaceBlock detects new AI prefix without reading hash from text', () => {

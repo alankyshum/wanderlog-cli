@@ -22,15 +22,15 @@ export async function applyOpsBatch(opts = {}, tripKey, ops = [], { dryRun = fal
   return { applied: ops.length };
 }
 
-export async function cleanupAiItems(opts = {}, tripKey, { hashPrefix, all = false, dryRun = false, confirm } = {}) {
-  if (!tripKey) throw new UsageError('Usage: wlog debug cleanup-ai <tripKey> [--dry-run] [--hash <prefix>] --confirm <tripKey>');
+export async function cleanupAiItems(opts = {}, tripKey, { all = false, dryRun = false, confirm } = {}) {
+  if (!tripKey) throw new UsageError('Usage: wlog debug cleanup-ai <tripKey> [--dry-run] --confirm <tripKey>');
   void all;
   if (!dryRun && confirm !== tripKey) {
     throw new ConfirmRequiredError(`Cleanup requires --confirm ${tripKey}`);
   }
 
   const trip = await getTrip(opts, tripKey);
-  const matches = collectAiMatches(trip, hashPrefix);
+  const matches = collectAiMatches(trip);
   const ops = buildDeleteOps(matches);
   if (dryRun) return { ...dryRunOps(ops), items: matches.map(match => match.item) };
 
@@ -38,7 +38,7 @@ export async function cleanupAiItems(opts = {}, tripKey, { hashPrefix, all = fal
   return { deleted: ops.length, tripKey };
 }
 
-function collectAiMatches(trip, hashPrefix) {
+function collectAiMatches(trip) {
   const matches = [];
   rawSections(trip).forEach((section, secIdx) => {
     const blocks = Array.isArray(section.blocks) ? section.blocks : [];
@@ -46,7 +46,6 @@ function collectAiMatches(trip, hashPrefix) {
       const parsed = parseAiPrefix(block.place?.name ?? block.name);
       const hash = parsed?.hash ?? null;
       if (!parsed) return;
-      if (hashPrefix && !hash?.startsWith(hashPrefix)) return;
       matches.push({
         secIdx,
         blockIndex,

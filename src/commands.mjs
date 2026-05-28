@@ -166,7 +166,7 @@ async function dispatchDebug(opts, subcommand, args) {
     const { requireAuth } = await import('./auth.mjs');
     const bulk = await import('./bulk.mjs');
     await requireAuth(opts);
-    return ok(await bulk.cleanupAiItems(opts, args[0], { dryRun: opts.dryRun, hashPrefix: opts.hash, confirm: opts.confirm }));
+    return ok(await bulk.cleanupAiItems(opts, args[0], { dryRun: opts.dryRun, confirm: opts.confirm }));
   }
   throw new UsageError('Usage: wlog debug <fetch|cleanup-ai> <tripKey>');
 }

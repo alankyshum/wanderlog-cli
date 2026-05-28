@@ -159,7 +159,7 @@ test('toLegacy maps v1 reviews to legacy review fields and drops undefined value
 test('new prefix format roundtrips via ai-attribution parser without note hash', () => {
   const parsed = parseAiPrefix('🤵‍♂️ Fixture Cafe');
   assert.deepEqual(parsed, { hash: null, baseName: 'Fixture Cafe', format: 'new' });
-  assert.deepEqual(parseAiPrefix('[🤵‍♂️ - abc12345] Fixture Cafe'), { hash: 'abc12345', baseName: 'Fixture Cafe', format: 'legacy' });
+  assert.equal(parseAiPrefix('[🤵‍♂️ - abc12345] Fixture Cafe'), null);
 });
 
 test('enrich-add args parse query, time, no-ai, and google-key flags', () => {

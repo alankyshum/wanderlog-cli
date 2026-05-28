@@ -22,7 +22,7 @@
               "type": "place",
               "place": {
                 "id": "place-001",
-                "name": "[🤵‍♂️ - deadbeef] Test Harbor Cafe",
+                "name": "🤵‍♂️ Test Harbor Cafe",
                 "place_id": "fixture-place-001",
                 "formatted_address": "123 Example Street, Fixture City",
                 "geometry": { "location": { "lat": 33.4996, "lng": 126.5312 } },

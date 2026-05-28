@@ -1,5 +1,4 @@
-const LEGACY_AI_PREFIX_RE = /^\[🤵‍♂️ - ([a-f0-9]{8,})\]\s*(.*)$/u;
-const NEW_AI_PREFIX_RE = /^🤵‍♂️\s+(.+)$/u;
+const NEW_AI_PREFIX_RE = /^🤵‍♂️ (.+)$/u;
 
 export function normalizeTripSummary(raw = {}) {
   return {
@@ -63,17 +62,17 @@ export function normalizePlaceBlock(raw = {}, blockIndex = 0) {
 }
 
 export function extractAiHash(name) {
-  if (typeof name !== 'string') return null;
-  return name.match(LEGACY_AI_PREFIX_RE)?.[1] ?? null;
+  void name;
+  return null;
 }
 
 export function stripAiPrefix(name) {
   if (typeof name !== 'string') return name;
-  return name.match(LEGACY_AI_PREFIX_RE)?.[2] ?? name.match(NEW_AI_PREFIX_RE)?.[1] ?? name;
+  return name.match(NEW_AI_PREFIX_RE)?.[1] ?? name;
 }
 
 function hasAiPrefix(name) {
-  return typeof name === 'string' && (LEGACY_AI_PREFIX_RE.test(name) || NEW_AI_PREFIX_RE.test(name));
+  return typeof name === 'string' && NEW_AI_PREFIX_RE.test(name);
 }
 
 function normalizeDestination(raw) {
