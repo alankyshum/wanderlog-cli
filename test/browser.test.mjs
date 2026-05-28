@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import http from 'node:http';
 
 import { BrowserUnavailableError } from '../src/errors.mjs';
-import { captureCookieViaBrowser, parseTimeout } from '../src/browser.mjs';
+import { captureCookieViaBrowser, isSignedInUrl, parseTimeout } from '../src/browser.mjs';
 
 const LOGIN_URL = 'https://wanderlog.com/login';
 
@@ -82,6 +82,71 @@ test('captureCookieViaBrowser treats current non-login top frame as signed in', 
   assert.equal(result.cookieValue, 'ALREADY_IN');
 });
 
+test('captureCookieViaBrowser detects sign-in via polling and stops polling after resolution', async t => {
+  let getCookiesCalls = 0;
+  let getFrameTreeCalls = 0;
+  const server = await createCdpServer({
+    onCommand(command) {
+      if (command.method === 'Network.getCookies') {
+        getCookiesCalls += 1;
+        const signedIn = getCookiesCalls >= 2;
+        return {
+          cookies: signedIn ? [{ name: 'connect.sid', value: 's:abc', domain: '.wanderlog.com', path: '/' }] : [],
+        };
+      }
+      if (command.method === 'Page.getFrameTree') {
+        getFrameTreeCalls += 1;
+        const signedIn = getFrameTreeCalls >= 2;
+        return { frameTree: { frame: { id: 'root', url: signedIn ? 'https://wanderlog.com/' : LOGIN_URL } } };
+      }
+      return {};
+    },
+  });
+  t.after(() => server.close());
+
+  const result = await captureCookieViaBrowser({
+    chromePath: '/fake/chrome',
+    port: server.port,
+    timeout: '2s',
+    settleMs: 30,
+    pollIntervalMs: 5,
+    spawn: fakeSpawn,
+  });
+
+  assert.equal(result.cookieValue, 's:abc');
+  assert.equal(getFrameTreeCalls, 2);
+  assert.equal(getCookiesCalls, 3);
+});
+
+test('captureCookieViaBrowser detects sign-in via navigatedWithinDocument event', async t => {
+  const server = await createCdpServer({
+    onCommand(command, sendEvent) {
+      if (command.method === 'Page.getFrameTree') {
+        queueMicrotask(() => sendEvent('Page.navigatedWithinDocument', {
+          frameId: 'root',
+          url: 'https://wanderlog.com/trips',
+        }));
+        return { frameTree: { frame: { id: 'root', url: LOGIN_URL } } };
+      }
+      if (command.method === 'Network.getCookies') {
+        return { cookies: [{ name: 'connect.sid', value: 'WITHIN_DOC', domain: '.wanderlog.com', path: '/' }] };
+      }
+      return {};
+    },
+  });
+  t.after(() => server.close());
+
+  const result = await captureCookieViaBrowser({
+    chromePath: '/fake/chrome',
+    port: server.port,
+    timeout: '2s',
+    settleMs: 0,
+    spawn: fakeSpawn,
+  });
+
+  assert.equal(result.cookieValue, 'WITHIN_DOC');
+});
+
 test('captureCookieViaBrowser times out when no signed-in navigation occurs', async t => {
   const server = await createCdpServer({
     onCommand(command) {
@@ -114,6 +179,16 @@ test('parseTimeout accepts milliseconds, seconds, and minutes', () => {
   assert.equal(parseTimeout('300000'), 300000);
   assert.equal(parseTimeout('30s'), 30000);
   assert.equal(parseTimeout('10m'), 600000);
+});
+
+test('isSignedInUrl rejects login paths after stripping query and hash', () => {
+  assert.equal(isSignedInUrl('https://wanderlog.com/', 'https://wanderlog.com'), true);
+  assert.equal(isSignedInUrl('https://wanderlog.com/trips?login=false#login', 'https://wanderlog.com'), true);
+  assert.equal(isSignedInUrl('https://wanderlog.com/login', 'https://wanderlog.com'), false);
+  assert.equal(isSignedInUrl('https://wanderlog.com/login?redirect=/', 'https://wanderlog.com'), false);
+  assert.equal(isSignedInUrl('https://wanderlog.com/login#email', 'https://wanderlog.com'), false);
+  assert.equal(isSignedInUrl('https://wanderlog.com/login/email?redirect=/', 'https://wanderlog.com'), false);
+  assert.equal(isSignedInUrl('https://example.com/', 'https://wanderlog.com'), false);
 });
 
 async function createCdpServer({ onCommand }) {

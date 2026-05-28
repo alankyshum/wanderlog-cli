@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_BASE_URL = 'https://wanderlog.com';
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SETTLE_MS = 1500;
+const DEFAULT_SIGN_IN_POLL_MS = 2000;
 const CONNECT_SID = 'connect.sid';
 
 const MAC_BROWSER_PATHS = [
@@ -100,7 +101,14 @@ export async function captureCookieViaBrowser(opts = {}) {
     await connection.send('Network.enable');
 
     log(`Waiting for you to sign in (timeout: ${formatDuration(timeoutMs)}) ...`);
-    await waitForSignIn(connection, { baseUrl: origin, deadline, timeoutMs, verbose: opts.verbose, log });
+    await waitForSignIn(connection, {
+      baseUrl: origin,
+      deadline,
+      timeoutMs,
+      verbose: opts.verbose,
+      log,
+      pollIntervalMs: opts.pollIntervalMs,
+    });
     log('✓ Detected sign-in');
 
     const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
@@ -234,11 +242,17 @@ async function waitForPageTarget({ port, baseUrl, fetchImpl, deadline, verbose, 
   );
 }
 
-async function waitForSignIn(connection, { baseUrl, deadline, timeoutMs, verbose, log }) {
+async function waitForSignIn(connection, { baseUrl, deadline, timeoutMs, verbose, log, pollIntervalMs = DEFAULT_SIGN_IN_POLL_MS }) {
+  let settled = false;
   let resolveSignedIn;
   const signedIn = new Promise(resolve => {
-    resolveSignedIn = resolve;
+    resolveSignedIn = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
   });
+  let topFrameId = null;
 
   const checkUrl = url => {
     if (isSignedInUrl(url, baseUrl)) {
@@ -248,29 +262,71 @@ async function waitForSignIn(connection, { baseUrl, deadline, timeoutMs, verbose
     return false;
   };
 
-  const unsubscribe = connection.on('Page.frameNavigated', params => {
+  const unsubscribeFrameNavigated = connection.on('Page.frameNavigated', params => {
     const frame = params?.frame;
     if (!frame || frame.parentId !== undefined) return;
+    topFrameId = frame.id || topFrameId;
     if (verbose) log(`CDP frameNavigated: ${frame.url}`);
     checkUrl(frame.url);
   });
 
-  try {
+  const unsubscribeNavigatedWithinDocument = connection.on('Page.navigatedWithinDocument', params => {
+    if (!params?.url) return;
+    if (topFrameId && params.frameId && params.frameId !== topFrameId) return;
+    if (verbose) log(`CDP navigatedWithinDocument: ${params.url}`);
+    checkUrl(params.url);
+  });
+
+  let pollTimer = null;
+  let pollInFlight = false;
+  const pollForSignIn = async () => {
+    if (settled || pollInFlight) return;
+    pollInFlight = true;
     try {
+      const cookieResponse = await connection.send('Network.getCookies', { urls: [baseUrl] });
+      const cookies = Array.isArray(cookieResponse?.cookies) ? cookieResponse.cookies : [];
+      const hasCookie = cookies.some(entry => entry?.name === CONNECT_SID && typeof entry.value === 'string' && entry.value.length > 0);
+
       const frameTree = await connection.send('Page.getFrameTree');
-      const currentUrl = frameTree?.frameTree?.frame?.url;
-      if (verbose && currentUrl) log(`CDP current frame: ${currentUrl}`);
-      if (checkUrl(currentUrl)) return;
+      const currentFrame = frameTree?.frameTree?.frame;
+      topFrameId = currentFrame?.id || topFrameId;
+      const currentUrl = currentFrame?.url;
+      const signedInUrl = isSignedInUrl(currentUrl, baseUrl);
+      const signedInNow = hasCookie && signedInUrl;
+      if (verbose) log(`Poll: signedIn=${signedInNow} currentUrl=${currentUrl || ''} hasCookie=${hasCookie}`);
+      if (signedInNow) resolveSignedIn(currentUrl);
     } catch (err) {
-      if (verbose) log(`CDP Page.getFrameTree unavailable: ${err.message}`);
+      if (verbose) log(`Poll error: ${err.message}`);
+    } finally {
+      pollInFlight = false;
     }
+  };
+
+  try {
+    let timeoutTimer;
+    const timedOut = new Promise((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        reject(new BrowserUnavailableError(`Sign-in not completed within ${formatDuration(timeoutMs)}. Run again or use \`wlog auth login --timeout 10m\`.`));
+      }, remainingMs(deadline));
+    });
+
+    void pollForSignIn();
+    pollTimer = setInterval(() => {
+      void pollForSignIn();
+    }, Math.max(1, Number(pollIntervalMs) || DEFAULT_SIGN_IN_POLL_MS));
+    pollTimer.unref?.();
 
     await Promise.race([
       signedIn,
-      timeoutPromise(deadline, `Sign-in not completed within ${formatDuration(timeoutMs)}. Run again or use \`wlog auth login --timeout 10m\`.`),
+      timedOut,
     ]);
+
+    clearTimeout(timeoutTimer);
   } finally {
-    unsubscribe();
+    settled = true;
+    if (pollTimer) clearInterval(pollTimer);
+    unsubscribeFrameNavigated();
+    unsubscribeNavigatedWithinDocument();
   }
 }
 
@@ -414,9 +470,16 @@ function normalizeCookie(cookie) {
   };
 }
 
-function isSignedInUrl(url, baseUrl) {
+export function isSignedInUrl(url, baseUrl) {
   if (!url || typeof url !== 'string') return false;
-  return url.startsWith(`${baseUrl}/`) && !url.includes('/login');
+  try {
+    const parsed = new URL(url);
+    const base = new URL(baseUrl);
+    if (parsed.origin !== base.origin) return false;
+    return parsed.pathname !== '/login' && !parsed.pathname.startsWith('/login/');
+  } catch {
+    return false;
+  }
 }
 
 function normalizeBaseUrl(value) {
