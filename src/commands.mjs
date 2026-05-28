@@ -114,6 +114,7 @@ async function dispatchPlaces(opts, subcommand, args) {
         endTime: opts.end,
         ai: !opts.noAi,
         googleKey: opts.googleKey,
+        withPhotos: Boolean(opts.withPhotos),
       }));
     case 'update':
       return ok(await places.updatePlace(opts, args[0], args[1], args[2], collectPlaceUpdates(opts)));

@@ -22,6 +22,7 @@ const GOOGLE_FIELDS = [
   'addressComponents',
   'regularOpeningHours',
   'primaryType',
+  'photos',
 ].join(',');
 
 export async function searchPlace(opts = {}, query) {
@@ -77,7 +78,10 @@ export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}
 
   const placeId = await gSearch(query, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch });
   const detailsV1 = await gDetails(placeId, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch });
-  const legacy = toLegacy(detailsV1);
+  const photoUrls = details.withPhotos
+    ? await gPhotoMediaUrls(detailsV1.photos, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch })
+    : [];
+  const legacy = toLegacy(detailsV1, { photoUrls });
   const block = buildEnrichedPlaceBlock({ legacy, query, notes, startTime, endTime, ai, userId: token?.userId });
   const blockIndex = beforeBlocks.length;
 
@@ -233,29 +237,39 @@ export async function gDetails(placeId, { apiKey = process.env.GOOGLE_MAPS_API_K
   return data;
 }
 
-export function toLegacy(v1 = {}) {
-  return {
+export async function gPhotoMediaUrls(photos = [], { apiKey = process.env.GOOGLE_MAPS_API_KEY, fetchImpl = globalThis.fetch } = {}) {
+  if (!apiKey) throw new UsageError('Google Places API key required: set GOOGLE_MAPS_API_KEY or pass --google-key <key>');
+  const names = photos
+    .map(photo => photo?.name)
+    .filter(Boolean)
+    .slice(0, 3);
+  const urls = [];
+  for (const name of names) {
+    const mediaUrl = new URL(`https://places.googleapis.com/v1/${name}/media`);
+    mediaUrl.searchParams.set('maxWidthPx', '1600');
+    mediaUrl.searchParams.set('skipHttpRedirect', 'true');
+    mediaUrl.searchParams.set('key', apiKey);
+    const response = await fetchImpl(mediaUrl);
+    const data = await response.json();
+    if (!response.ok || !data.photoUri) {
+      throw new ApiError(`Google Places photo media failed for ${name}: ${JSON.stringify(data).slice(0, 500)}`, response.status);
+    }
+    urls.push(data.photoUri);
+  }
+  return urls;
+}
+
+export function toLegacy(v1 = {}, { photoUrls = [] } = {}) {
+  const legacy = {
     name: v1.displayName?.text || '',
     place_id: v1.id,
     geometry: { location: { lat: v1.location?.latitude, lng: v1.location?.longitude } },
     formatted_address: v1.formattedAddress || '',
-    vicinity: v1.shortFormattedAddress || v1.formattedAddress || '',
-    rating: v1.rating ?? null,
-    user_ratings_total: v1.userRatingCount ?? null,
-    website: v1.websiteUri ?? null,
-    address_components: (v1.addressComponents || []).map(component => ({
-      long_name: component.longText,
-      short_name: component.shortText,
-      types: component.types,
-    })),
-    opening_hours: v1.regularOpeningHours
-      ? { periods: v1.regularOpeningHours.periods || [], weekday_text: v1.regularOpeningHours.weekdayDescriptions || [] }
-      : null,
     types: v1.types || [],
-    url: v1.googleMapsUri ?? null,
     business_status: v1.businessStatus ?? null,
-    photo_urls: [],
   };
+  if (photoUrls.length > 0) legacy.photo_urls = photoUrls;
+  return legacy;
 }
 
 function addNameOp(ops, secIdx, blockIdx, block, updates) {

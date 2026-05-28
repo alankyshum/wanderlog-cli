@@ -24,7 +24,7 @@ async function tmpConfigWithToken(t) {
   return configDir;
 }
 
-test('toLegacy maps Google Places v1 details to legacy Wanderlog place shape', () => {
+test('toLegacy maps Google Places v1 details to minimal Wanderlog place shape', () => {
   const legacy = toLegacy({
     id: 'places/fixture123',
     displayName: { text: 'Fixture Cafe' },
@@ -49,20 +49,13 @@ test('toLegacy maps Google Places v1 details to legacy Wanderlog place shape', (
     place_id: 'places/fixture123',
     geometry: { location: { lat: 33.4996, lng: 126.5312 } },
     formatted_address: '123 Example Street, Fixture City',
-    vicinity: '123 Example Street',
-    rating: 4.7,
-    user_ratings_total: 123,
-    website: 'https://fixture.example',
-    address_components: [{ long_name: 'Fixture City', short_name: 'Fixture', types: ['locality'] }],
-    opening_hours: {
-      periods: [{ open: { day: 1, hour: 9, minute: 0 }, close: { day: 1, hour: 18, minute: 0 } }],
-      weekday_text: ['Monday: 9:00 AM – 6:00 PM'],
-    },
     types: ['cafe', 'point_of_interest'],
-    url: 'https://maps.google.com/?cid=fixture',
     business_status: 'OPERATIONAL',
-    photo_urls: [],
   });
+  assert.equal('opening_hours' in legacy, false);
+  assert.equal('photo_urls' in legacy, false);
+  assert.equal('address_components' in legacy, false);
+  assert.equal('vicinity' in legacy, false);
 });
 
 test('new prefix format roundtrips via ai-attribution parser with hash in notes text', () => {
@@ -87,6 +80,15 @@ test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
   assert.equal(parsed.options.end, '10:30');
   assert.equal(parsed.options.noAi, true);
   assert.equal(parsed.options.googleKey, 'GOOGLE_FIXTURE_KEY');
+});
+
+test('enrich-add args parse with-photos flag', () => {
+  const parsed = parseArgs([
+    'places', 'enrich-add', 'TESTTRIP1', 'sec-day-1',
+    '--query', 'Fixture Cafe Jeju',
+    '--with-photos',
+  ]);
+  assert.equal(parsed.options.withPhotos, true);
 });
 
 test('enrich-add command inserts enriched block and verifies block count increment', async t => {
@@ -141,6 +143,73 @@ test('enrich-add command inserts enriched block and verifies block count increme
   assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
   assert.match(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
   assert.deepEqual(JSON.parse(fetches.find(entry => entry.url.includes('/applyOps')).init.body).ops[0].p, ['itinerary', 'sections', 0, 'blocks', 0]);
+});
+
+test('enrich-add --with-photos expands top three v1 photo media URLs', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/fixture123', displayName: { text: 'Fixture Cafe' } }] });
+    }
+    if (String(url).includes('/v1/places/places/fixture123')) {
+      return jsonResponse({
+        id: 'places/fixture123',
+        displayName: { text: 'Fixture Cafe' },
+        formattedAddress: '123 Example Street, Fixture City',
+        location: { latitude: 33.4996, longitude: 126.5312 },
+        types: ['cafe'],
+        businessStatus: 'OPERATIONAL',
+        photos: [
+          { name: 'places/fixture123/photos/photo-a' },
+          { name: 'places/fixture123/photos/photo-b' },
+          { name: 'places/fixture123/photos/photo-c' },
+          { name: 'places/fixture123/photos/photo-d' },
+        ],
+      });
+    }
+    if (String(url).includes('/media?')) {
+      const photoName = String(url).match(/photos\/([^/]+)\/media/)?.[1];
+      return jsonResponse({ photoUri: `https://lh3.googleusercontent.com/${photoName}` });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY', query: 'Fixture Cafe Jeju', withPhotos: true }).execute(
+    'places',
+    'enrich-add',
+    ['TESTTRIP1', 'sec-day-1'],
+  );
+
+  assert.equal(result.success, true);
+  assert.deepEqual(insertedBlocks[0].place.photo_urls, [
+    'https://lh3.googleusercontent.com/photo-a',
+    'https://lh3.googleusercontent.com/photo-b',
+    'https://lh3.googleusercontent.com/photo-c',
+  ]);
+  const mediaFetches = fetches.filter(entry => entry.url.includes('/media?'));
+  assert.equal(mediaFetches.length, 3);
+  assert.match(mediaFetches[0].url, /maxWidthPx=1600/);
+  assert.match(mediaFetches[0].url, /skipHttpRedirect=true/);
+  assert.match(mediaFetches[0].url, /key=GOOGLE_FIXTURE_KEY/);
 });
 
 function tripFixture(blocks) {
