@@ -38,6 +38,17 @@ test('extractAiHash and stripAiPrefix handle AI-prefixed names', () => {
   const name = '[🤵‍♂️ - deadbeef] Test Harbor Cafe';
   assert.equal(extractAiHash(name), 'deadbeef');
   assert.equal(stripAiPrefix(name), 'Test Harbor Cafe');
+  assert.equal(stripAiPrefix('🤵‍♂️ Test Harbor Cafe'), 'Test Harbor Cafe');
   assert.equal(extractAiHash('Museum of Fixtures'), null);
   assert.equal(stripAiPrefix('Museum of Fixtures'), 'Museum of Fixtures');
+});
+
+test('normalizePlaceBlock reads new AI hash format from first text line', () => {
+  const block = normalizePlaceBlock({
+    type: 'place',
+    place: { name: '🤵‍♂️ Test Harbor Cafe' },
+    text: { ops: [{ insert: '[deadbeef]\nBreakfast and planning notes\n' }] },
+  }, 0);
+  assert.equal(block.hasAiPrefix, true);
+  assert.equal(block.aiHash, 'deadbeef');
 });

@@ -44,8 +44,10 @@ function collectAiMatches(trip, hashPrefix) {
     const blocks = Array.isArray(section.blocks) ? section.blocks : [];
     blocks.forEach((block, blockIndex) => {
       const parsed = parseAiPrefix(block.place?.name ?? block.name);
-      if (!parsed) return;
-      if (hashPrefix && !parsed.hash.startsWith(hashPrefix)) return;
+      const textHash = extractHashFromText(block.text);
+      const hash = parsed?.hash ?? textHash;
+      if (!parsed && !hash) return;
+      if (hashPrefix && !hash?.startsWith(hashPrefix)) return;
       matches.push({
         secIdx,
         blockIndex,
@@ -53,13 +55,18 @@ function collectAiMatches(trip, hashPrefix) {
         item: {
           sectionId: section.id ?? null,
           sectionHeading: section.heading ?? null,
-          aiHash: parsed.hash,
+          aiHash: hash,
           ...normalizePlaceBlock(block, blockIndex),
         },
       });
     });
   });
   return matches;
+}
+
+function extractHashFromText(text) {
+  const firstInsert = text?.ops?.[0]?.insert;
+  return typeof firstInsert === 'string' ? firstInsert.match(/^\[([a-f0-9]{8,})\](?:\n|$)/u)?.[1] ?? null : null;
 }
 
 function buildDeleteOps(matches) {

@@ -36,7 +36,7 @@ test('help mode resolves to command-specific handler text without service calls'
   assert.match((await dispatcher.execute('auth', null, [])).data, /wlog auth/);
   assert.match((await dispatcher.execute('trips', null, [])).data, /wlog trips/);
   assert.match((await dispatcher.execute('sections', null, [])).data, /wlog sections/);
-  assert.match((await dispatcher.execute('places', null, [])).data, /wlog places/);
+  assert.match((await dispatcher.execute('places', null, [])).data, /wlog places.*enrich-add/);
   assert.match((await dispatcher.execute('calendar', null, [])).data, /wlog calendar/);
 });
 

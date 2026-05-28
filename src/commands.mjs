@@ -106,6 +106,15 @@ async function dispatchPlaces(opts, subcommand, args) {
         endTime: opts.end,
         ai: !opts.noAi,
       }));
+    case 'enrich-add':
+      return ok(await places.enrichAddPlace(opts, args[0], args[1], {
+        query: opts.query,
+        notes: opts.notes,
+        startTime: opts.start,
+        endTime: opts.end,
+        ai: !opts.noAi,
+        googleKey: opts.googleKey,
+      }));
     case 'update':
       return ok(await places.updatePlace(opts, args[0], args[1], args[2], collectPlaceUpdates(opts)));
     case 'delete':
@@ -115,7 +124,7 @@ async function dispatchPlaces(opts, subcommand, args) {
     case 'list':
       return ok(await places.listPlaces(opts, args[0]));
     default:
-      throw new UsageError('Usage: wlog places <search|add|update|delete|move|list>');
+      throw new UsageError('Usage: wlog places <search|add|enrich-add|update|delete|move|list>');
   }
 }
 
@@ -183,7 +192,7 @@ function helpFor(command) {
     auth: 'Usage: wlog auth <login|status|logout|import-cookie|token-path> [options]',
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
-    places: 'Usage: wlog places <search|add|update|delete|move|list> [tripKey] [options]',
+    places: 'Usage: wlog places <search|add|enrich-add|update|delete|move|list> [tripKey] [options]',
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
   };
