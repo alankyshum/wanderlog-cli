@@ -68,6 +68,8 @@ Destructive commands require an exact `--confirm <id>` value before any network 
 
 AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). Place notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
 
+Notes should be durable, not sequential: capture what the place is, why it earned its slot, and the signature thing to look for (dish, view, artifact, booking/parking detail, or Karlam hook). Do not write route/order/date context like “after lunch”, “on the way back”, “next to X”, or “drive 25 min”; that goes stale when blocks move in Wanderlog.
+
 ## Enriched Google Places add
 
 Use `places enrich-add` to search Google Places v1, fetch details, map them to Wanderlog's legacy place shape, insert the block with `applyOps`, then re-fetch the trip to verify the section block count increased by one:

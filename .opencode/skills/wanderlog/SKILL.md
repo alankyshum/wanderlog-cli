@@ -114,6 +114,22 @@ AI-created/touched place titles use:
 
 New place notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided.
 
+### Notes convention — write for durability, not sequence
+
+Place notes capture the place's **durable essence**: what it IS, why it earned its slot, and the **signature thing to look for** that creates a memory. Examples: "Udo peanut latte at Klein Blue", "tangerine hand-cream at Innisfree", "천년비자 Sacred Tree at Bijarim".
+
+NEVER write order- or sequence-dependent content. It goes stale the instant the user rearranges blocks in the Wanderlog UI.
+
+- ❌ "Drive 25 min from Aewol"
+- ❌ "On the way back"
+- ❌ "After lunch"
+- ❌ "Next to O'sulloc"
+- ❌ specific dates / times / day names
+- ❌ "Replaces X" (history footnote; fine when truly durable, but skip if you can)
+- ✅ Karlam dossier hooks: "Karlam pick — sea + concrete brutalism"
+- ✅ Opening hours, entry fee, booking refs, parking info
+- ✅ Signature dish / view / artifact
+
 ## Safety rules
 
 - List sections before mutating: `wlog sections list <tripKey>`.
