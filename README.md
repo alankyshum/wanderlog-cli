@@ -17,7 +17,7 @@ This directory contains the in-repo `wlog` CLI for Wanderlog itinerary managemen
 │   ├── client.mjs        # authenticated Wanderlog HTTP client
 │   ├── trips.mjs         # trip list/get/create/rename/date/delete
 │   ├── sections.mjs      # section CRUD/reorder helpers
-│   ├── places.mjs        # place search/add/update/delete/move
+│   ├── places.mjs        # place search/add/enrich-add/update/delete/move
 │   ├── calendar.mjs      # Worker admin API + local preview
 │   ├── ics-generator.mjs # trip-to-ICS conversion
 │   ├── models.mjs        # normalization helpers
@@ -43,7 +43,22 @@ Mutations use fetch-before-mutate:
 3. Build `applyOps` JSON operations against the current array path.
 4. Send the operation to Wanderlog.
 
-Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive a visible AI hash prefix when touched through the AI path.
+Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
+
+AI-created/touched place names now use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). The attribution hash moves to the first line of the rich-text note: `[{ insert: '[<hash>]\n' + notes + '\n' }]`. Parsers remain backward-compatible with legacy names shaped like `[🤵‍♂️ - <hash>] <Name>`.
+
+## Enriched Google Places add
+
+Use `places enrich-add` to search Google Places v1, fetch details, map them to Wanderlog's legacy place shape, insert the block with `applyOps`, then re-fetch the trip to verify the section block count increased by one:
+
+```bash
+export GOOGLE_MAPS_API_KEY="$(op item get eryf3fv6lhqyjqiq7qqyrnjt7y --vault Env-Secrets --reveal --format json | jq -r '.fields[] | select(.label=="credential" or .purpose=="PASSWORD") | .value')"
+wlog places enrich-add lpwekdgnmmcqjkjo 21652664 \
+  --query "Handam Coastal Walk Aewol Jeju" \
+  --start 10:30 --end 12:30
+```
+
+Flags: `--query` is required. Optional flags are `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, and `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`). `photo_urls` is currently intentionally empty; v1 photo media URL expansion is not implemented yet.
 
 ## Where to add new commands
 
@@ -60,13 +75,13 @@ Keep command modules network-isolated behind `src/client.mjs`; tests should mock
 Run CLI tests from the repository root:
 
 ```bash
-node --test .opencode/skills/wanderlog/test/
+node --test test/
 ```
 
 Run Worker tests separately:
 
 ```bash
-node --test public/workers/wanderlog-calendar/test/
+node --test worker/test/
 ```
 
 The test suite uses only `node:test` and `node:assert/strict`. Fixtures must not include real cookies, personal data, or real trip IDs except the documented Jeju sandbox ID in docs/tests that explicitly mention it.
@@ -85,10 +100,10 @@ https://calendar.alanshum.org/wanderlog
 
 `src/calendar.mjs` calls the Worker admin API to subscribe/unsubscribe trips, list subscriptions, refresh the feed, and preview ICS. Worker deploys cannot import files outside their directory, so the Worker vendors copies of the model and ICS logic. Keep these in sync when changing ICS behavior:
 
-- `.opencode/skills/wanderlog/src/ics-generator.mjs`
-- `.opencode/skills/wanderlog/src/models.mjs`
-- `public/workers/wanderlog-calendar/src/ics-generator.mjs`
-- `public/workers/wanderlog-calendar/src/models.mjs`
+- `src/ics-generator.mjs`
+- `src/models.mjs`
+- `worker/src/ics-generator.mjs`
+- `worker/src/models.mjs`
 
 ## Exit codes
 

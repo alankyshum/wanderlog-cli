@@ -15,7 +15,7 @@ import { CLIError } from '../src/errors.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 async function main() {
   try {
@@ -74,7 +74,7 @@ COMMANDS
   auth          Authentication (login, status, logout)
   trips         Trip management (list, create, get, rename, set-dates, delete)
   sections      Itinerary sections (list, add, rename, delete, move)
-  places        Place management (search, add, update, delete, move)
+  places        Place management (search, add, enrich-add, update, delete, move)
   calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh)
   debug         Debugging utilities (fetch, inspect)
 
@@ -90,6 +90,7 @@ GLOBAL OPTIONS
 EXAMPLES
   wlog auth login
   wlog trips list
+  wlog places enrich-add "Jeju" 21652664 --query "Handam Coastal Walk Jeju" --start 10:30 --end 12:30
   wlog calendar subscribe "Jeju"
 
 For help on a specific command, use: wlog <command> --help

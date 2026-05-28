@@ -3,13 +3,13 @@
 Run the in-repo CLI unit tests from the repository root:
 
 ```bash
-node --test .opencode/skills/wanderlog/test/
+node --test test/
 ```
 
 Run Worker subscription tests separately:
 
 ```bash
-node --test public/workers/wanderlog-calendar/test/
+node --test worker/test/
 ```
 
 These tests use `node:test` and `node:assert/strict` only. They do not make real network calls, do not require real Wanderlog credentials, and use sanitized fixtures only.

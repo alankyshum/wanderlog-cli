@@ -5,4 +5,5 @@ import './commands.test.mjs';
 import './calendar.test.mjs';
 import './ics-generator.test.mjs';
 import './models.test.mjs';
+import './places-enrich.test.mjs';
 import './token-store.test.mjs';
