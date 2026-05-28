@@ -2,7 +2,7 @@ import { UsageError } from '../src/errors.mjs';
 
 const BOOL_FLAGS = new Set([
   'help', 'version', 'json', 'verbose', 'quiet', 'no-open',
-  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos',
+  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown',
 ]);
 
 const VALUE_FLAGS = new Set([
@@ -23,6 +23,7 @@ const OPTION_KEYS = {
   'from-legacy': 'fromLegacy',
   'no-ai': 'noAi',
   'with-photos': 'withPhotos',
+  'show-unknown': 'showUnknown',
   'start-date': 'startDate',
   'end-date': 'endDate',
   'to-index': 'toIndex',

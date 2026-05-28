@@ -15,7 +15,7 @@ import { CLIError } from '../src/errors.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const VERSION = '0.3.4';
+const VERSION = '0.3.5';
 
 async function main() {
   try {
@@ -87,11 +87,16 @@ GLOBAL OPTIONS
   --config-dir <path>  Override config directory (default: ~/.config/wanderlog)
   --token-file <path>  Override token file path
 
+PLACES CHECK-STATUS
+  wlog places check-status <tripKey> [--json] [--show-unknown] [--google-key <key>]
+  Shows CLOSED_TEMPORARILY, CLOSED_PERMANENTLY, PLACE_ID_INVALID, and ERR_* rows.
+  UNKNOWN rows (no Google businessStatus/business profile) are hidden unless --show-unknown is passed.
+
 EXAMPLES
   wlog auth login     Open an isolated Chrome/Chromium browser login and save connect.sid
   wlog trips list
   wlog places enrich-add "Jeju" 21652664 --query "Handam Coastal Walk Jeju" --start 10:30 --end 12:30
-  wlog places check-status "Jeju" --json
+  wlog places check-status "Jeju" --json --show-unknown
   wlog calendar subscribe "Jeju"
 
 For help on a specific command, use: wlog <command> --help

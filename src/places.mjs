@@ -37,6 +37,11 @@ const GOOGLE_STATUS_FIELDS = [
   'googleMapsUri',
 ].join(',');
 const CHECK_STATUS_CONCURRENCY = 10;
+const SURFACED_CHECK_STATUSES = new Set([
+  'CLOSED_TEMPORARILY',
+  'CLOSED_PERMANENTLY',
+  'PLACE_ID_INVALID',
+]);
 
 export async function searchPlace(opts = {}, query) {
   return searchDestination(opts, query);
@@ -120,8 +125,9 @@ export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}
 }
 
 export async function checkPlaceStatuses(opts = {}, tripKey, details = {}) {
-  if (!tripKey) throw new UsageError('Usage: wlog places check-status <tripKey> [--json] [--google-key <key>]');
+  if (!tripKey) throw new UsageError('Usage: wlog places check-status <tripKey> [--json] [--show-unknown] [--google-key <key>]');
   const apiKey = resolveGoogleKey(details.googleKey || opts.googleKey, 'Set --google-key or $GOOGLE_MAPS_API_KEY');
+  const showUnknown = Boolean(details.showUnknown ?? opts.showUnknown);
   const trip = await getTrip(opts, tripKey);
   const entries = collectPlaceStatusEntries(trip);
   const statuses = await fetchPlaceStatuses(entries.map(entry => entry.place_id), {
@@ -129,20 +135,11 @@ export async function checkPlaceStatuses(opts = {}, tripKey, details = {}) {
     fetchImpl: opts.fetch,
   });
 
-  return entries.flatMap(entry => {
-    const detailsV1 = statuses.get(entry.place_id);
-    const businessStatus = detailsV1?.businessStatus;
-    if (!businessStatus || businessStatus === 'OPERATIONAL') return [];
-    const legacy = toLegacy(detailsV1);
-    return [{
-      section: entry.section,
-      'block.id': entry['block.id'],
-      name: entry.name || legacy.name || null,
-      place_id: entry.place_id,
-      businessStatus,
-      url: legacy.url || entry.url || null,
-    }];
-  });
+  const allRows = entries.map(entry => buildCheckStatusRow(entry, statuses.get(entry.place_id)));
+  return {
+    summary: buildCheckStatusSummary(allRows),
+    rows: filterCheckStatusRows(allRows, { showUnknown }),
+  };
 }
 
 export function collectPlaceStatusEntries(trip = {}) {
@@ -167,14 +164,37 @@ export function collectPlaceStatusEntries(trip = {}) {
   return entries;
 }
 
-export function formatCheckStatusReport(rows = []) {
-  return `${formatStatusTable(rows)}\n${formatCheckStatusSummary(rows)}`;
+export function formatCheckStatusReport(result = {}) {
+  const rows = Array.isArray(result) ? result : result.rows || [];
+  const summary = Array.isArray(result) ? buildCheckStatusSummary(rows) : result.summary || buildCheckStatusSummary(rows);
+  const showUnknown = rows.some(row => row.status === 'UNKNOWN');
+  return `${formatStatusTable(rows)}\n${formatCheckStatusSummary(summary, { showUnknown })}`;
 }
 
-export function formatCheckStatusSummary(rows = []) {
-  const temporary = rows.filter(row => row.businessStatus === 'CLOSED_TEMPORARILY').length;
-  const permanent = rows.filter(row => row.businessStatus === 'CLOSED_PERMANENTLY').length;
-  return `Found ${rows.length} closed places: ${temporary} CLOSED_TEMPORARILY, ${permanent} CLOSED_PERMANENTLY`;
+export function formatCheckStatusSummary(summaryOrRows = [], { showUnknown = false } = {}) {
+  const summary = Array.isArray(summaryOrRows) ? buildCheckStatusSummary(summaryOrRows) : summaryOrRows;
+  const byStatus = summary.byStatus || {};
+  const parts = orderedSummaryStatuses(byStatus, { showUnknown })
+    .map(status => `${byStatus[status]} ${status.toLowerCase()}`);
+  const base = `${summary.total || 0} places checked: ${parts.length > 0 ? parts.join(', ') : 'no places with Google status'}`;
+  const unknownCount = byStatus.UNKNOWN || 0;
+  if (!showUnknown && unknownCount > 0) {
+    return `${base} (run with --show-unknown to also see ${unknownCount} places without business profile)`;
+  }
+  return base;
+}
+
+export function buildCheckStatusSummary(rows = []) {
+  const byStatus = {};
+  for (const row of rows) {
+    const status = row.status || row.businessStatus || 'UNKNOWN';
+    byStatus[status] = (byStatus[status] || 0) + 1;
+  }
+  return { total: rows.length, byStatus };
+}
+
+export function filterCheckStatusRows(rows = [], { showUnknown = false } = {}) {
+  return rows.filter(row => shouldSurfaceCheckStatus(row.status, { showUnknown }));
 }
 
 export async function updatePlace(opts = {}, tripKey, sectionId, blockIndex, updates = {}) {
@@ -302,9 +322,11 @@ export async function gStatusDetails(placeId, { apiKey = process.env.GOOGLE_MAPS
       'X-Goog-Api-Key': apiKey,
     },
   });
-  const data = await response.json();
+  const data = await parseResponseJson(response);
   if (!response.ok || !data.id) {
-    throw new ApiError(`Google Places status details failed for ${placeId}: ${JSON.stringify(data).slice(0, 500)}`, response.status);
+    const error = new ApiError(`Google Places status details failed for ${placeId}: ${JSON.stringify(data).slice(0, 500)}`, response.status);
+    error.data = data;
+    throw error;
   }
   return data;
 }
@@ -465,18 +487,83 @@ async function fetchPlaceStatuses(placeIds, opts) {
   const details = new Map();
   for (let start = 0; start < uniquePlaceIds.length; start += CHECK_STATUS_CONCURRENCY) {
     const chunk = uniquePlaceIds.slice(start, start + CHECK_STATUS_CONCURRENCY);
-    const results = await Promise.all(chunk.map(placeId => gStatusDetails(placeId, opts)));
+    const results = await Promise.all(chunk.map(placeId => fetchSinglePlaceStatus(placeId, opts)));
     results.forEach((result, index) => details.set(chunk[index], result));
   }
   return details;
 }
 
 function formatStatusTable(rows) {
-  const keys = ['section', 'block.id', 'name', 'place_id', 'businessStatus', 'url'];
+  const keys = ['section', 'block.id', 'name', 'place_id', 'status', 'currentName', 'businessStatus', 'url'];
   const render = row => keys.map(key => String(row[key] ?? '')).join(' | ');
   const header = keys.join(' | ');
   const separator = keys.map(() => '---').join(' | ');
   return [header, separator, ...rows.map(render)].join('\n');
+}
+
+async function fetchSinglePlaceStatus(placeId, opts) {
+  try {
+    const detailsV1 = await gStatusDetails(placeId, opts);
+    const businessStatus = detailsV1.businessStatus || null;
+    return {
+      status: businessStatus || 'UNKNOWN',
+      businessStatus,
+      currentName: detailsV1.displayName?.text || null,
+      url: detailsV1.googleMapsUri || null,
+    };
+  } catch (error) {
+    if (error?.status === 404 || error?.data?.error?.status === 'NOT_FOUND') {
+      return { status: 'PLACE_ID_INVALID', businessStatus: null, currentName: null, url: null };
+    }
+    if (Number.isInteger(error?.status) && error.status > 0) {
+      return { status: `ERR_${error.status}`, businessStatus: null, currentName: null, url: null };
+    }
+    return { status: 'ERR_FETCH', businessStatus: null, currentName: null, url: null };
+  }
+}
+
+function buildCheckStatusRow(entry, status = {}) {
+  return {
+    section: entry.section,
+    'block.id': entry['block.id'],
+    name: entry.name || status.currentName || null,
+    place_id: entry.place_id,
+    businessStatus: status.businessStatus || null,
+    status: status.status || 'ERR_FETCH',
+    currentName: status.currentName || null,
+    url: status.url || entry.url || null,
+  };
+}
+
+function shouldSurfaceCheckStatus(status, { showUnknown = false } = {}) {
+  if (status === 'OPERATIONAL') return false;
+  if (status === 'UNKNOWN') return showUnknown;
+  return SURFACED_CHECK_STATUSES.has(status) || String(status || '').startsWith('ERR_');
+}
+
+function orderedSummaryStatuses(byStatus = {}, { showUnknown = false } = {}) {
+  const preferred = [
+    'OPERATIONAL',
+    'CLOSED_TEMPORARILY',
+    'CLOSED_PERMANENTLY',
+    'PLACE_ID_INVALID',
+    ...(showUnknown ? ['UNKNOWN'] : []),
+  ];
+  const preferredSet = new Set(preferred);
+  return [
+    ...preferred.filter(status => byStatus[status] > 0),
+    ...Object.keys(byStatus)
+      .filter(status => byStatus[status] > 0 && !preferredSet.has(status) && status !== 'UNKNOWN')
+      .sort(),
+  ];
+}
+
+async function parseResponseJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
 }
 
 function addNameOp(ops, secIdx, blockIdx, block, updates) {

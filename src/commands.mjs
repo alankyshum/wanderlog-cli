@@ -92,9 +92,9 @@ async function dispatchPlaces(opts, subcommand, args) {
   const { requireAuth } = await import('./auth.mjs');
   const places = await import('./places.mjs');
   if (subcommand === 'check-status') {
-    const rows = await places.checkPlaceStatuses(opts, args[0], { googleKey: opts.googleKey });
-    if (opts.format === 'json' || opts.json) return ok(rows);
-    return ok(places.formatCheckStatusReport(rows));
+    const result = await places.checkPlaceStatuses(opts, args[0], { googleKey: opts.googleKey, showUnknown: opts.showUnknown });
+    if (opts.format === 'json' || opts.json) return ok(result);
+    return ok(places.formatCheckStatusReport(result));
   }
   await requireAuth(opts);
   switch (subcommand) {
@@ -209,7 +209,15 @@ FALLBACK
 `,
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
-    places: 'Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]\n\nCHECK STATUS\n  wlog places check-status <tripKey> [--json] [--google-key <key>]',
+    places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
+
+CHECK STATUS
+  wlog places check-status <tripKey> [--json] [--show-unknown] [--google-key <key>]
+
+  Sweeps itinerary place IDs for Google business status issues.
+  Shows CLOSED_TEMPORARILY, CLOSED_PERMANENTLY, PLACE_ID_INVALID, and ERR_* by default.
+  Hides UNKNOWN rows (places without businessStatus/business profile) unless --show-unknown is passed.
+  OPERATIONAL rows are never listed, but are counted in the summary.`,
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
   };

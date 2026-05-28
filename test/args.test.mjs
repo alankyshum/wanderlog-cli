@@ -56,6 +56,7 @@ test('per-command flags parse with camelCase option names', () => {
     '--to-index', '2',
     '--hash', 'deadbeef',
     '--no-ai',
+    '--show-unknown',
   ]);
   assert.deepEqual(parsed.positional, ['TESTTRIP1', 'sec-day-1']);
   assert.equal(parsed.options.alias, 'Fixture Alias');
@@ -66,6 +67,7 @@ test('per-command flags parse with camelCase option names', () => {
   assert.equal(parsed.options.toIndex, '2');
   assert.equal(parsed.options.hash, 'deadbeef');
   assert.equal(parsed.options.noAi, true);
+  assert.equal(parsed.options.showUnknown, true);
 });
 
 test('auth login browser flow flags parse', () => {

@@ -21,7 +21,7 @@ Auth is stored at `~/.config/wanderlog/token.json`; re-run `wlog auth login` on 
 | `wlog trips list` / `wlog trips get <tripKey>` | Find and inspect trips. |
 | `wlog sections list <tripKey>` | Find section ids before mutations. |
 | `wlog places enrich-add <tripKey> <sectionId> --query "..."` | Add a Google-enriched place block. |
-| `wlog places check-status <tripKey> [--json]` | Sweep itinerary places, hotels, flights, and rental cars for non-operational Google business statuses. |
+| `wlog places check-status <tripKey> [--json] [--show-unknown]` | Sweep itinerary places, hotels, flights, and rental cars for non-operational Google business statuses and stale Google IDs. |
 | `wlog calendar subscribe <tripKey>` | Subscribe a trip to the stable calendar feed. |
 
 ## Browser auth login
@@ -93,9 +93,16 @@ Before a trip, and after any reported closures, agents should sweep for replacem
 
 ```bash
 wlog places check-status <tripKey> --json
+# Add --show-unknown for a full audit that includes places without Google businessStatus/business profiles.
 ```
 
-This reports only places whose Google Places `businessStatus` is present and not `OPERATIONAL`, including regular place blocks plus hotel, flight airport, and rental-car pickup/dropoff places. `--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
+This reports only actionable rows by default: `CLOSED_TEMPORARILY`, `CLOSED_PERMANENTLY`, `PLACE_ID_INVALID`, and `ERR_*`, including regular place blocks plus hotel, flight airport, and rental-car pickup/dropoff places. `OPERATIONAL` rows are never listed but are counted in the summary.
+
+`UNKNOWN` means Google returned 200 OK without `businessStatus` (often raw addresses, non-business attractions, rentals, or places with no business profile). These rows are hidden by default; pass `--show-unknown` when you need a full audit.
+
+`PLACE_ID_INVALID` means Google returned `NOT_FOUND` for a retired/migrated Place ID. Fix by re-enriching that block: re-search the place by name, then update/replace the stale block with the current Google place details.
+
+`--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
 
 ## AI attribution format
 

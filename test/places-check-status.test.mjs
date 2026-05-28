@@ -29,6 +29,7 @@ test('check-status walker collects place ids from mixed itinerary block shapes',
 
   assert.deepEqual(entries.map(entry => ({ section: entry.section, blockId: entry['block.id'], name: entry.name, placeId: entry.place_id })), [
     { section: 'East Coast/places[0]', blockId: 'place-1', name: 'Closed Cafe', placeId: 'closed-temp' },
+    { section: 'East Coast/places[2]', blockId: 'place-stale', name: 'Stale Place', placeId: 'stale-place-id' },
     { section: 'Flights/KE024.depart', blockId: 'flight-1', name: 'Seoul Incheon Airport', placeId: 'airport-icn' },
     { section: 'Flights/KE024.arrive', blockId: 'flight-1', name: 'Jeju Airport', placeId: 'airport-cju' },
     { section: 'Hotels/lodging.place', blockId: 'hotel-1', name: 'Closed Hotel', placeId: 'closed-perm' },
@@ -37,7 +38,7 @@ test('check-status walker collects place ids from mixed itinerary block shapes',
   ]);
 });
 
-test('check-status reports only closed Google Places statuses', async t => {
+test('check-status reports surfaced Google Places statuses and hides UNKNOWN by default', async t => {
   const configDir = await tmpConfigWithToken(t);
   const fetches = [];
   installFetch(t, async (url, init = {}) => {
@@ -45,21 +46,33 @@ test('check-status reports only closed Google Places statuses', async t => {
     if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
     if (String(url).includes('places.googleapis.com/v1/places/')) {
       const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
-      return jsonResponse(googleStatus(placeId));
+      return googleStatusResponse(placeId);
     }
     throw new Error(`Unexpected fetch ${url}`);
   });
 
-  const rows = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'TESTTRIP1');
+  const result = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'TESTTRIP1');
 
-  assert.deepEqual(rows, [
+  assert.deepEqual(result.rows, [
     {
       section: 'East Coast/places[0]',
       'block.id': 'place-1',
       name: 'Closed Cafe',
       place_id: 'closed-temp',
       businessStatus: 'CLOSED_TEMPORARILY',
+      status: 'CLOSED_TEMPORARILY',
+      currentName: 'Google closed-temp',
       url: 'https://maps.example/closed-temp',
+    },
+    {
+      section: 'East Coast/places[2]',
+      'block.id': 'place-stale',
+      name: 'Stale Place',
+      place_id: 'stale-place-id',
+      businessStatus: null,
+      status: 'PLACE_ID_INVALID',
+      currentName: null,
+      url: 'https://old.example/stale-place-id',
     },
     {
       section: 'Hotels/lodging.place',
@@ -67,12 +80,60 @@ test('check-status reports only closed Google Places statuses', async t => {
       name: 'Closed Hotel',
       place_id: 'closed-perm',
       businessStatus: 'CLOSED_PERMANENTLY',
+      status: 'CLOSED_PERMANENTLY',
+      currentName: 'Google closed-perm',
       url: 'https://maps.example/closed-perm',
     },
   ]);
-  assert.equal(fetches.filter(entry => entry.url.includes('places.googleapis.com')).length, 6);
+  assert.deepEqual(result.summary, {
+    total: 7,
+    byStatus: {
+      CLOSED_TEMPORARILY: 1,
+      PLACE_ID_INVALID: 1,
+      OPERATIONAL: 3,
+      CLOSED_PERMANENTLY: 1,
+      UNKNOWN: 1,
+    },
+  });
+  assert.equal(fetches.filter(entry => entry.url.includes('places.googleapis.com')).length, 7);
   assert.match(fetches.find(entry => entry.url.includes('closed-temp')).url, /fields=id%2CdisplayName%2CbusinessStatus%2CgoogleMapsUri/);
   assert.equal(fetches.find(entry => entry.url.includes('closed-temp')).init.headers['X-Goog-Api-Key'], 'GOOGLE_FIXTURE_KEY');
+});
+
+test('check-status maps 404 NOT_FOUND to PLACE_ID_INVALID and continues sweep', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  installFetch(t, async url => {
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
+    if (String(url).includes('places.googleapis.com/v1/places/')) {
+      const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
+      return googleStatusResponse(placeId);
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  });
+
+  const result = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'TESTTRIP1');
+
+  assert.equal(result.rows.find(row => row.place_id === 'stale-place-id')?.status, 'PLACE_ID_INVALID');
+  assert.equal(result.rows.find(row => row.place_id === 'closed-perm')?.status, 'CLOSED_PERMANENTLY');
+});
+
+test('check-status marks missing businessStatus as UNKNOWN and shows it with --show-unknown', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  installFetch(t, async url => {
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
+    if (String(url).includes('places.googleapis.com/v1/places/')) {
+      const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
+      return googleStatusResponse(placeId);
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  });
+
+  const result = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'TESTTRIP1', { showUnknown: true });
+  const unknown = result.rows.find(row => row.place_id === 'car-dropoff');
+
+  assert.equal(unknown.status, 'UNKNOWN');
+  assert.equal(unknown.currentName, 'Google car-dropoff');
+  assert.equal(unknown.businessStatus, null);
 });
 
 test('check-status batches Google status requests 10 at a time', async t => {
@@ -92,9 +153,11 @@ test('check-status batches Google status requests 10 at a time', async t => {
     throw new Error(`Unexpected fetch ${url}`);
   });
 
-  const rows = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'BIGTRIP');
+  const result = await checkPlaceStatuses({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY' }, 'BIGTRIP');
 
-  assert.equal(rows.length, 0);
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.summary.total, 23);
+  assert.equal(result.summary.byStatus.OPERATIONAL, 23);
   assert.equal(maxInFlight, 10);
 });
 
@@ -104,7 +167,7 @@ test('check-status human command output includes summary count', async t => {
     if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
     if (String(url).includes('places.googleapis.com/v1/places/')) {
       const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
-      return jsonResponse(googleStatus(placeId));
+      return googleStatusResponse(placeId);
     }
     throw new Error(`Unexpected fetch ${url}`);
   });
@@ -115,17 +178,18 @@ test('check-status human command output includes summary count', async t => {
     ['TESTTRIP1'],
   );
 
-  assert.match(result.data, /section \| block\.id \| name \| place_id \| businessStatus \| url/);
-  assert.match(result.data, /Found 2 closed places: 1 CLOSED_TEMPORARILY, 1 CLOSED_PERMANENTLY/);
+  assert.match(result.data, /section \| block\.id \| name \| place_id \| status \| currentName \| businessStatus \| url/);
+  assert.match(result.data, /7 places checked: 3 operational, 1 closed_temporarily, 1 closed_permanently, 1 place_id_invalid \(run with --show-unknown to also see 1 places without business profile\)/);
+  assert.doesNotMatch(result.data, /car-dropoff/);
 });
 
-test('check-status --json command output is a valid JSON array', async t => {
+test('check-status --json command output includes summary byStatus breakdown', async t => {
   const configDir = await tmpConfigWithToken(t);
   installFetch(t, async url => {
     if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
     if (String(url).includes('places.googleapis.com/v1/places/')) {
       const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
-      return jsonResponse(googleStatus(placeId));
+      return googleStatusResponse(placeId);
     }
     throw new Error(`Unexpected fetch ${url}`);
   });
@@ -137,9 +201,38 @@ test('check-status --json command output is a valid JSON array', async t => {
   );
   const parsed = JSON.parse(formatOutput(result.data, { format: 'json' }));
 
-  assert.ok(Array.isArray(parsed));
-  assert.equal(parsed.length, 2);
-  assert.equal(parsed[0].businessStatus, 'CLOSED_TEMPORARILY');
+  assert.deepEqual(Object.keys(parsed).sort(), ['rows', 'summary']);
+  assert.equal(parsed.summary.total, 7);
+  assert.equal(parsed.summary.byStatus.OPERATIONAL, 3);
+  assert.equal(parsed.summary.byStatus.UNKNOWN, 1);
+  assert.equal(parsed.summary.byStatus.PLACE_ID_INVALID, 1);
+  assert.equal(parsed.rows.length, 3);
+  assert.equal(parsed.rows[0].businessStatus, 'CLOSED_TEMPORARILY');
+  assert.equal(parsed.rows[0].status, 'CLOSED_TEMPORARILY');
+  assert.equal(parsed.rows.some(row => row.status === 'UNKNOWN'), false);
+});
+
+test('check-status --show-unknown command output includes UNKNOWN rows', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  installFetch(t, async url => {
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) return jsonResponse(tripPayload());
+    if (String(url).includes('places.googleapis.com/v1/places/')) {
+      const placeId = decodeURIComponent(String(url).match(/\/v1\/places\/([^?]+)/)?.[1] || '');
+      return googleStatusResponse(placeId);
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  });
+
+  const result = await createCommandDispatcher({ configDir, showUnknown: true, googleKey: 'GOOGLE_FIXTURE_KEY' }).execute(
+    'places',
+    'check-status',
+    ['TESTTRIP1'],
+  );
+
+  assert.match(result.data, /car-dropoff/);
+  assert.match(result.data, /UNKNOWN/);
+  assert.match(result.data, /7 places checked: 3 operational, 1 closed_temporarily, 1 closed_permanently, 1 place_id_invalid, 1 unknown/);
+  assert.doesNotMatch(result.data, /--show-unknown/);
 });
 
 test('check-status missing Google key throws usage error with exit code 2', async t => {
@@ -183,6 +276,7 @@ function tripPayload() {
             blocks: [
               { id: 'place-1', type: 'place', place: { name: 'Closed Cafe', place_id: 'closed-temp', url: 'https://old.example/closed-temp' } },
               { id: 'checklist-1', type: 'checklist', items: [{ text: 'No place id here' }] },
+              { id: 'place-stale', type: 'place', place: { name: 'Stale Place', place_id: 'stale-place-id', url: 'https://old.example/stale-place-id' } },
             ],
           },
           {
@@ -237,6 +331,18 @@ function googleStatus(placeId) {
     ...(status ? { businessStatus: status } : {}),
     googleMapsUri: `https://maps.example/${placeId}`,
   };
+}
+
+function googleStatusResponse(placeId) {
+  if (placeId === 'stale-place-id') {
+    return jsonResponse({
+      error: {
+        status: 'NOT_FOUND',
+        message: 'The provided Place ID is no longer valid.',
+      },
+    }, 404);
+  }
+  return jsonResponse(googleStatus(placeId));
 }
 
 function bigTripPayload(count) {
