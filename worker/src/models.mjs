@@ -1,4 +1,4 @@
-// VENDORED from .opencode/skills/wanderlog/src/models.mjs — keep in sync.
+// VENDORED from .claude/skills/wanderlog/src/models.mjs — keep in sync.
 const NEW_AI_PREFIX_RE = /^🤵‍♂️ (.+)$/u;
 
 export function normalizeTripSummary(raw = {}) {

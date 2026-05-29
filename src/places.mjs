@@ -42,6 +42,27 @@ const SURFACED_CHECK_STATUSES = new Set([
   'CLOSED_PERMANENTLY',
   'PLACE_ID_INVALID',
 ]);
+const GENERIC_PLACE_TYPES = new Set(['point_of_interest', 'establishment']);
+const HUMAN_PLACE_TYPES = new Map([
+  ['lodging', 'guesthouse / hotel'],
+  ['hotel', 'guesthouse / hotel'],
+  ['cafe', 'café'],
+  ['restaurant', 'restaurant'],
+  ['tourist_attraction', 'tourist attraction'],
+  ['park', 'park'],
+  ['museum', 'museum'],
+  ['store', 'shop'],
+  ['clothing_store', 'shop'],
+  ['cosmetics_store', 'shop'],
+  ['bakery', 'bakery'],
+  ['dessert_shop', 'dessert shop'],
+  ['ice_cream_shop', 'dessert shop'],
+  ['gas_station', 'gas station'],
+  ['airport', 'airport'],
+  ['parking', 'parking'],
+  ['point_of_interest', 'attraction'],
+  ['establishment', 'place'],
+]);
 
 export async function searchPlace(opts = {}, query) {
   return searchDestination(opts, query);
@@ -82,8 +103,8 @@ export async function addPlace(opts = {}, tripKey, sectionId, details = {}) {
 }
 
 export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}) {
-  if (!tripKey || !sectionId) throw new UsageError('Usage: wlog places enrich-add <tripKey> <sectionId> --query <query> [--notes --start --end --no-ai --google-key <key>]');
-  const { query, notes, startTime, endTime, ai = true } = details;
+  if (!tripKey || !sectionId) throw new UsageError('Usage: wlog places enrich-add <tripKey> <sectionId> --query <query> [--duration <text> --notes --start --end --no-ai --google-key <key>]');
+  const { query, notes, duration, startTime, endTime, ai = true } = details;
   if (!query) throw new UsageError('--query is required');
   validateOptionalTime(startTime, 'startTime');
   validateOptionalTime(endTime, 'endTime');
@@ -100,7 +121,19 @@ export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}
     ? await gPhotoMediaUrls(detailsV1.photos, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch })
     : [];
   const legacy = toLegacy(detailsV1, { photoUrls });
-  const block = buildEnrichedPlaceBlock({ legacy, query, notes, startTime, endTime, ai, userId: token?.userId });
+  const preamble = formatNotesPreamble({
+    duration,
+    name: detailsV1.displayName?.text || legacy.name,
+    englishName: englishNameFromPlace(detailsV1),
+    primaryType: detailsV1.primaryType || detailsV1.types?.[0],
+    types: detailsV1.types,
+    languageCode: detailsV1.displayName?.languageCode,
+    nameForAttribution: detailsV1.nameForAttribution,
+    shortFormattedAddress: detailsV1.shortFormattedAddress,
+    internationalPhoneNumber: detailsV1.internationalPhoneNumber,
+  });
+  const fullNotes = [preamble, notes].filter(Boolean).join('');
+  const block = buildEnrichedPlaceBlock({ legacy, query, notes: fullNotes, startTime, endTime, ai, userId: token?.userId });
   const blockIndex = beforeBlocks.length;
 
   await applyTripOps(opts, tripKey, [{ p: ['itinerary', 'sections', secIdx, 'blocks', blockIndex], li: block }]);
@@ -182,6 +215,35 @@ export function formatCheckStatusSummary(summaryOrRows = [], { showUnknown = fal
     return `${base} (run with --show-unknown to also see ${unknownCount} places without business profile)`;
   }
   return base;
+}
+
+export function formatNotesPreamble({
+  duration,
+  name,
+  englishName,
+  primaryType,
+  types = [],
+  languageCode,
+  nameForAttribution,
+  shortFormattedAddress,
+  internationalPhoneNumber,
+} = {}) {
+  const lines = [];
+  const trimmedDuration = String(duration || '').trim();
+  if (trimmedDuration) lines.push(`**Plan ~${trimmedDuration}.** `);
+
+  const whatName = formatWhatName({
+    name,
+    englishName,
+    languageCode,
+    nameForAttribution,
+    shortFormattedAddress,
+    internationalPhoneNumber,
+  });
+  const type = humanPlaceType(primaryType, types);
+  const todo = whatName.needsEnglishTodo ? ' <!-- TODO: add English name -->' : '';
+  lines.push(`**What:** ${whatName.text} — ${type}.${todo}`);
+  return `${lines.join('\n')}\n`;
 }
 
 export function buildCheckStatusSummary(rows = []) {
@@ -574,7 +636,8 @@ function addNameOp(ops, secIdx, blockIdx, block, updates) {
 }
 
 function buildTextOps(userNotes = '') {
-  return [{ insert: `${userNotes || ''}\n` }];
+  const text = String(userNotes || '');
+  return [{ insert: text.endsWith('\n') ? text : `${text}\n` }];
 }
 
 function addSimplePlaceOp(ops, secIdx, blockIdx, block, updates, key, pathTail) {
@@ -586,10 +649,71 @@ function addSimplePlaceOp(ops, secIdx, blockIdx, block, updates, key, pathTail) 
 function addNotesOp(ops, secIdx, blockIdx, block, updates) {
   if (updates.notes == null) return;
   const oldText = block.text ?? { ops: [{ insert: '\n' }] };
-  const newText = { ops: [{ insert: `${updates.notes || ''}\n` }] };
+  const newText = { ops: buildTextOps(updates.notes) };
   if (JSON.stringify(oldText) !== JSON.stringify(newText)) {
     ops.push({ p: sectionPath(secIdx, 'blocks', blockIdx, 'text'), oi: newText, od: oldText });
   }
+}
+
+function formatWhatName({ name, englishName, languageCode, nameForAttribution, shortFormattedAddress, internationalPhoneNumber }) {
+  void languageCode;
+  void shortFormattedAddress;
+  void internationalPhoneNumber;
+  const original = String(name || '').trim() || 'Unknown place';
+  if (isLatinOrChineseName(original)) return { text: original, needsEnglishTodo: false };
+
+  const fallback = pickEnglishName({ original, englishName, nameForAttribution });
+  if (fallback) return { text: `${original} (${fallback})`, needsEnglishTodo: false };
+  return { text: original, needsEnglishTodo: true };
+}
+
+function englishNameFromPlace(place = {}) {
+  return place.englishName
+    || place.editorialSummary?.text
+    || place.generativeSummary?.overview?.text
+    || place.evChargeOptions?.connectorAggregation?.displayName?.text
+    || '';
+}
+
+function pickEnglishName({ original, englishName, nameForAttribution }) {
+  const candidates = [
+    englishName,
+    typeof nameForAttribution === 'string' ? nameForAttribution : nameForAttribution?.text,
+  ];
+  for (const candidate of candidates) {
+    const text = String(candidate || '').trim();
+    if (text && text !== original && isLikelyEnglishLabel(text)) return text;
+  }
+  return '';
+}
+
+function isLatinOrChineseName(value) {
+  const letters = Array.from(String(value || '')).filter(char => /\p{Letter}/u.test(char));
+  if (letters.length === 0) return true;
+  return letters.every(char => /\p{Script=Latin}|\p{Script=Han}/u.test(char));
+}
+
+function isLikelyEnglishLabel(value) {
+  const letters = Array.from(String(value || '')).filter(char => /\p{Letter}/u.test(char));
+  return letters.some(char => /\p{Script=Latin}/u.test(char))
+    && letters.every(char => /\p{Script=Latin}/u.test(char));
+}
+
+function humanPlaceType(primaryType, types = []) {
+  const typeList = Array.isArray(types) ? types : [];
+  const chosenType = choosePlaceType(primaryType, typeList);
+  return HUMAN_PLACE_TYPES.get(chosenType) || humanizeType(chosenType);
+}
+
+function choosePlaceType(primaryType, types = []) {
+  if (primaryType && !GENERIC_PLACE_TYPES.has(primaryType)) return primaryType;
+  const secondary = types.find(type => type && type !== primaryType && !GENERIC_PLACE_TYPES.has(type));
+  if (secondary) return secondary;
+  return primaryType || types.find(Boolean) || 'point_of_interest';
+}
+
+function humanizeType(type = 'point_of_interest') {
+  return String(type || 'point_of_interest').replace(/_/g, ' ');
 }
 
 function addTimeOp(ops, secIdx, blockIdx, block, updates, key) {

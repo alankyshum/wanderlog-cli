@@ -115,6 +115,7 @@ async function dispatchPlaces(opts, subcommand, args) {
       return ok(await places.enrichAddPlace(opts, args[0], args[1], {
         query: opts.query,
         notes: opts.notes,
+        duration: opts.duration,
         startTime: opts.start,
         endTime: opts.end,
         ai: !opts.noAi,
@@ -210,6 +211,16 @@ FALLBACK
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
     places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
+
+ENRICH ADD
+  wlog places enrich-add <tripKey> <sectionId> --query <text> [--duration <text>] [--notes <text>]
+
+  Searches Google Places v1, inserts an enriched place block, and auto-prepends notes headers:
+  **Plan ~<duration>.**  (only when --duration is provided; omitted otherwise)
+  **What:** <Google displayName> — <human Google type>.
+
+  Options: --query, --duration, --notes, --start HH:MM, --end HH:MM, --no-ai,
+  --google-key <key>, --with-photos.
 
 CHECK STATUS
   wlog places check-status <tripKey> [--json] [--show-unknown] [--google-key <key>]

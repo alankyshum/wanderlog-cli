@@ -1,4 +1,4 @@
-// VENDORED from .opencode/skills/wanderlog/src/ics-generator.mjs — keep in sync.
+// VENDORED from .claude/skills/wanderlog/src/ics-generator.mjs — keep in sync.
 const PRODID = '-//alanshum//wanderlog-calendar//EN';
 const CALENDAR_HOST = 'calendar.alanshum.org';
 const TEXT_ENCODER = new TextEncoder();

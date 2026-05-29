@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseArgs } from '../bin/args.mjs';
 import { createCommandDispatcher } from '../src/commands.mjs';
 import { parseAiPrefix } from '../src/ai-attribution.mjs';
-import { addPlace, toLegacy, toLegacyOpeningHours } from '../src/places.mjs';
+import { addPlace, formatNotesPreamble, toLegacy, toLegacyOpeningHours } from '../src/places.mjs';
 import { TOKEN_VERSION, saveToken } from '../src/token-store.mjs';
 
 async function tmpConfigWithToken(t) {
@@ -168,6 +168,7 @@ test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
     '--query', 'Fixture Cafe Jeju',
     '--start', '09:00',
     '--end', '10:30',
+    '--duration', '1–1.5 h',
     '--no-ai',
     '--google-key', 'GOOGLE_FIXTURE_KEY',
   ]);
@@ -177,8 +178,51 @@ test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
   assert.equal(parsed.options.query, 'Fixture Cafe Jeju');
   assert.equal(parsed.options.start, '09:00');
   assert.equal(parsed.options.end, '10:30');
+  assert.equal(parsed.options.duration, '1–1.5 h');
   assert.equal(parsed.options.noAi, true);
   assert.equal(parsed.options.googleKey, 'GOOGLE_FIXTURE_KEY');
+});
+
+test('formatNotesPreamble keeps English-Latin display names as-is', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '30 min', name: 'Fixture Café', primaryType: 'cafe', types: ['cafe'] }),
+    '**Plan ~30 min.** \n**What:** Fixture Café — café.\n',
+  );
+});
+
+test('formatNotesPreamble keeps Chinese display names as-is', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '45 min', name: '添好運', primaryType: 'restaurant', types: ['restaurant'] }),
+    '**Plan ~45 min.** \n**What:** 添好運 — restaurant.\n',
+  );
+});
+
+test('formatNotesPreamble appends English fallback for Korean display names', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '1 h', name: '협재해수욕장', englishName: 'Hyeopjae Beach', primaryType: 'tourist_attraction', types: ['tourist_attraction'] }),
+    '**Plan ~1 h.** \n**What:** 협재해수욕장 (Hyeopjae Beach) — tourist attraction.\n',
+  );
+});
+
+test('formatNotesPreamble marks Korean display names without English fallback as TODO', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '20 min', name: '협재해수욕장', primaryType: 'park', types: ['park'] }),
+    '**Plan ~20 min.** \n**What:** 협재해수욕장 — park. <!-- TODO: add English name -->\n',
+  );
+});
+
+test('formatNotesPreamble omits Plan when duration is missing', () => {
+  assert.equal(
+    formatNotesPreamble({ name: 'Fixture Cafe', primaryType: 'cafe', types: ['cafe'] }),
+    '**What:** Fixture Cafe — café.\n',
+  );
+});
+
+test('formatNotesPreamble prefers secondary type when primary type is generic', () => {
+  assert.equal(
+    formatNotesPreamble({ name: 'Fixture Viewpoint', primaryType: 'point_of_interest', types: ['point_of_interest', 'tourist_attraction'] }),
+    '**What:** Fixture Viewpoint — tourist attraction.\n',
+  );
 });
 
 test('enrich-add args parse with-photos flag', () => {
@@ -240,12 +284,12 @@ test('enrich-add command inserts enriched block and verifies block count increme
   assert.equal(insertedBlocks.length, 1);
   assert.equal(insertedBlocks[0].place.place_id, 'places/fixture123');
   assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
-  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '\n' }]);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**What:** Fixture Cafe — café.\n' }]);
   assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
   assert.deepEqual(JSON.parse(fetches.find(entry => entry.url.includes('/applyOps')).init.body).ops[0].p, ['itinerary', 'sections', 0, 'blocks', 0]);
 });
 
-test('enrich-add command stores only user notes in text ops', async t => {
+test('enrich-add command prepends auto headers before user notes in text ops', async t => {
   const configDir = await tmpConfigWithToken(t);
   const fetches = [];
   const tripBefore = tripFixture([]);
@@ -282,7 +326,7 @@ test('enrich-add command stores only user notes in text ops', async t => {
     globalThis.fetch = originalFetch;
   });
 
-  const result = await createCommandDispatcher({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY', query: 'Fixture Cafe Jeju', notes: 'Breakfast stop' }).execute(
+  const result = await createCommandDispatcher({ configDir, googleKey: 'GOOGLE_FIXTURE_KEY', query: 'Fixture Cafe Jeju', duration: '30 min', notes: 'Breakfast stop' }).execute(
     'places',
     'enrich-add',
     ['TESTTRIP1', 'sec-day-1'],
@@ -290,7 +334,7 @@ test('enrich-add command stores only user notes in text ops', async t => {
 
   assert.equal(result.success, true);
   assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
-  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: 'Breakfast stop\n' }]);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**Plan ~30 min.** \n**What:** Fixture Cafe — café.\nBreakfast stop\n' }]);
   assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
 });
 

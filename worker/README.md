@@ -72,7 +72,7 @@ https://calendar.alanshum.org/wanderlog
 
 Worker deploys cannot import files outside this directory. These files are vendored and must be kept in sync with the CLI copies:
 
-- `src/ics-generator.mjs` from `.opencode/skills/wanderlog/src/ics-generator.mjs`
-- `src/models.mjs` from `.opencode/skills/wanderlog/src/models.mjs`
+- `src/ics-generator.mjs` from `.claude/skills/wanderlog/src/ics-generator.mjs`
+- `src/models.mjs` from `.claude/skills/wanderlog/src/models.mjs`
 
 Do not log `ADMIN_TOKEN`, `WANDERLOG_COOKIE`, or request Authorization headers.

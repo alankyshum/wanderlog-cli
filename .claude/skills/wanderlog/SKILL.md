@@ -77,8 +77,9 @@ wlog places enrich-add <tripKey> <sectionId> \
 Flags:
 
 - Required: `--query "NAME [Jeju]"`
-- Optional: `--start HH:MM`, `--end HH:MM`, `--notes "..."`, `--no-ai`, `--google-key <key>`
+- Optional: `--duration <text>`, `--start HH:MM`, `--end HH:MM`, `--notes "..."`, `--no-ai`, `--google-key <key>`
 - `--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
+- `--duration` is free-form (`30 min`, `1–1.5 h`, `2.5 h total`) and controls the optional Plan header. If omitted, the CLI omits the Plan line rather than fabricating one.
 
 Implementation notes:
 
@@ -112,11 +113,35 @@ AI-created/touched place titles use:
 🤵‍♂️ <Name>
 ```
 
-New place notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided.
+Plain `places add` notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided. `places enrich-add` auto-bakes the convention headers below before user notes.
 
 ### Notes convention — write for durability, not sequence
 
 Place notes capture the place's **durable essence**: what it IS, why it earned its slot, and the **signature thing to look for** that creates a memory. Examples: "Udo peanut latte at Klein Blue", "tangerine hand-cream at Innisfree", "천년비자 Sacred Tree at Bijarim".
+
+For `wlog places enrich-add`, the CLI prepends these headers before user `--notes`:
+
+```text
+**Plan ~<duration>.** 
+**What:** <Google displayName> — <human Google type>.
+<user --notes here>
+```
+
+- `**Plan**` is included only when `--duration <text>` is passed; no duration means no Plan line.
+- `**What**` is always included from Google Places enrichment. Non-Latin/non-Chinese display names get an English fallback in parentheses when Google provides one; otherwise the line includes `<!-- TODO: add English name -->`.
+
+Example:
+
+```bash
+wlog places enrich-add <tripKey> <sectionId> \
+  --query "협재해수욕장 Jeju" \
+  --duration "1 h" \
+  --notes "Wide white-sand beach with Biyangdo island views."
+# Notes become:
+# **Plan ~1 h.** 
+# **What:** 협재해수욕장 (Hyeopjae Beach) — tourist attraction.
+# Wide white-sand beach with Biyangdo island views.
+```
 
 NEVER write order- or sequence-dependent content. It goes stale the instant the user rearranges blocks in the Wanderlog UI.
 

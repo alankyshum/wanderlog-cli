@@ -5,7 +5,7 @@ This directory contains the in-repo `wlog` CLI for Wanderlog itinerary managemen
 ## Architecture overview
 
 ```text
-.opencode/skills/wanderlog/
+.claude/skills/wanderlog/
 ├── bin/
 │   ├── wlog.mjs          # executable entrypoint
 │   └── args.mjs          # small flag/positional parser
@@ -66,7 +66,7 @@ Mutations use fetch-before-mutate:
 
 Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
 
-AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). Place notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
+AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). `places enrich-add` auto-prepends durable `**Plan**` (only when `--duration` is provided) and `**What**` headers before user notes; plain `places add` notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
 
 Notes should be durable, not sequential: capture what the place is, why it earned its slot, and the signature thing to look for (dish, view, artifact, booking/parking detail, or Karlam hook). Do not write route/order/date context like “after lunch”, “on the way back”, “next to X”, or “drive 25 min”; that goes stale when blocks move in Wanderlog.
 
@@ -78,10 +78,21 @@ Use `places enrich-add` to search Google Places v1, fetch details, map them to W
 export GOOGLE_MAPS_API_KEY="$(op item get eryf3fv6lhqyjqiq7qqyrnjt7y --vault Env-Secrets --reveal --format json | jq -r '.fields[] | select(.label=="credential" or .purpose=="PASSWORD") | .value')"
 wlog places enrich-add lpwekdgnmmcqjkjo 21652664 \
   --query "Handam Coastal Walk Aewol Jeju" \
+  --duration "1 h" \
   --start 10:30 --end 12:30
 ```
 
-Flags: `--query` is required. Optional flags are `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
+Flags: `--query` is required. Optional flags are `--duration <text>` (free-form like `30 min`, `1–1.5 h`, or `2.5 h total`), `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
+
+`enrich-add` writes two convention headers before user `--notes` content:
+
+```text
+**Plan ~1 h.** 
+**What:** Handam Coastal Walk — tourist attraction.
+<user --notes here>
+```
+
+The Plan line is emitted only when `--duration` is provided; it is omitted rather than fabricated otherwise. The What line always uses Google's primary display name and a humanized Google place type.
 
 ## Where to add new commands
 
