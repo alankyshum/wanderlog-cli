@@ -103,8 +103,8 @@ export async function addPlace(opts = {}, tripKey, sectionId, details = {}) {
 }
 
 export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}) {
-  if (!tripKey || !sectionId) throw new UsageError('Usage: wlog places enrich-add <tripKey> <sectionId> --query <query> [--duration <text> --notes --start --end --no-ai --google-key <key>]');
-  const { query, notes, duration, startTime, endTime, ai = true } = details;
+  if (!tripKey || !sectionId) throw new UsageError('Usage: wlog places enrich-add <tripKey> <sectionId> --query <query> [--duration <text> --cost <text> --notes --start --end --no-ai --google-key <key>]');
+  const { query, notes, duration, cost, startTime, endTime, ai = true } = details;
   if (!query) throw new UsageError('--query is required');
   validateOptionalTime(startTime, 'startTime');
   validateOptionalTime(endTime, 'endTime');
@@ -123,6 +123,8 @@ export async function enrichAddPlace(opts = {}, tripKey, sectionId, details = {}
   const legacy = toLegacy(detailsV1, { photoUrls });
   const preamble = formatNotesPreamble({
     duration,
+    cost,
+    userNotes: notes,
     name: detailsV1.displayName?.text || legacy.name,
     englishName: englishNameFromPlace(detailsV1),
     primaryType: detailsV1.primaryType || detailsV1.types?.[0],
@@ -219,6 +221,8 @@ export function formatCheckStatusSummary(summaryOrRows = [], { showUnknown = fal
 
 export function formatNotesPreamble({
   duration,
+  cost,
+  userNotes,
   name,
   englishName,
   primaryType,
@@ -243,6 +247,8 @@ export function formatNotesPreamble({
   const type = humanPlaceType(primaryType, types);
   const todo = whatName.needsEnglishTodo ? ' <!-- TODO: add English name -->' : '';
   lines.push(`**What:** ${whatName.text} — ${type}.${todo}`);
+  const trimmedCost = String(cost || '').trim();
+  if (trimmedCost && !hasNotesHeader(userNotes, 'Cost')) lines.push(`**Cost:** ${trimmedCost}.`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -714,6 +720,11 @@ function choosePlaceType(primaryType, types = []) {
 
 function humanizeType(type = 'point_of_interest') {
   return String(type || 'point_of_interest').replace(/_/g, ' ');
+}
+
+function hasNotesHeader(notes = '', label) {
+  const escapedLabel = String(label).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\n)\\s*\\*\\*${escapedLabel}(?::|\\b)`, 'u').test(String(notes || ''));
 }
 
 function addTimeOp(ops, secIdx, blockIdx, block, updates, key) {

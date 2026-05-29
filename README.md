@@ -66,7 +66,7 @@ Mutations use fetch-before-mutate:
 
 Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
 
-AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). `places enrich-add` auto-prepends durable `**Plan**` (only when `--duration` is provided) and `**What**` headers before user notes; plain `places add` notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
+AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). `places enrich-add` auto-prepends durable `**Plan**` (only when `--duration` is provided), `**What**`, and `**Cost**` (only when `--cost` is provided) headers before user notes; plain `places add` notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
 
 Notes should be durable, not sequential: capture what the place is, why it earned its slot, and the signature thing to look for (dish, view, artifact, booking/parking detail, or Karlam hook). Do not write route/order/date context like “after lunch”, “on the way back”, “next to X”, or “drive 25 min”; that goes stale when blocks move in Wanderlog.
 
@@ -82,17 +82,18 @@ wlog places enrich-add lpwekdgnmmcqjkjo 21652664 \
   --start 10:30 --end 12:30
 ```
 
-Flags: `--query` is required. Optional flags are `--duration <text>` (free-form like `30 min`, `1–1.5 h`, or `2.5 h total`), `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
+Flags: `--query` is required. Optional flags are `--duration <text>` (free-form like `30 min`, `1–1.5 h`, or `2.5 h total`), `--cost <text>`, `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
 
-`enrich-add` writes two convention headers before user `--notes` content:
+`enrich-add` writes convention headers before user `--notes` content:
 
 ```text
 **Plan ~1 h.** 
 **What:** Handam Coastal Walk — tourist attraction.
+**Cost:** ₩3,000 adult entry. Card OK; carry cash backup.
 <user --notes here>
 ```
 
-The Plan line is emitted only when `--duration` is provided; it is omitted rather than fabricated otherwise. The What line always uses Google's primary display name and a humanized Google place type.
+The Plan line is emitted only when `--duration` is provided; it is omitted rather than fabricated otherwise. The What line always uses Google's primary display name and a humanized Google place type. The Cost line is emitted only when `--cost` is provided and should capture the durable amount, payment method, and any backup advice.
 
 ## Where to add new commands
 

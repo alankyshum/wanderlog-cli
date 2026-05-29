@@ -77,7 +77,7 @@ wlog places enrich-add <tripKey> <sectionId> \
 Flags:
 
 - Required: `--query "NAME [Jeju]"`
-- Optional: `--duration <text>`, `--start HH:MM`, `--end HH:MM`, `--notes "..."`, `--no-ai`, `--google-key <key>`
+- Optional: `--duration <text>`, `--cost <text>`, `--start HH:MM`, `--end HH:MM`, `--notes "..."`, `--no-ai`, `--google-key <key>`
 - `--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
 - `--duration` is free-form (`30 min`, `1–1.5 h`, `2.5 h total`) and controls the optional Plan header. If omitted, the CLI omits the Plan line rather than fabricating one.
 
@@ -124,11 +124,15 @@ For `wlog places enrich-add`, the CLI prepends these headers before user `--note
 ```text
 **Plan ~<duration>.** 
 **What:** <Google displayName> — <human Google type>.
+**Cost:** <cost>.
 <user --notes here>
 ```
 
 - `**Plan**` is included only when `--duration <text>` is passed; no duration means no Plan line.
 - `**What**` is always included from Google Places enrichment. Non-Latin/non-Chinese display names get an English fallback in parentheses when Google provides one; otherwise the line includes `<!-- TODO: add English name -->`.
+- `**Cost:** <amount + payment method + notes>.` captures the single most useful budget number for the visit: entry fee, ticket price, parking, fuel top-up, `Free`, or a paid-elsewhere booking reference. Include card/cash and any cash-backup advice on the same durable line so it survives reordering.
+- `**Cost:** ₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup.`
+- `**Cost:** Booking ref ABC123 paid (US$135.45). No additional unless damage/loss.`
 
 Example:
 
@@ -136,10 +140,12 @@ Example:
 wlog places enrich-add <tripKey> <sectionId> \
   --query "협재해수욕장 Jeju" \
   --duration "1 h" \
+  --cost "₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup" \
   --notes "Wide white-sand beach with Biyangdo island views."
 # Notes become:
 # **Plan ~1 h.** 
 # **What:** 협재해수욕장 (Hyeopjae Beach) — tourist attraction.
+# **Cost:** ₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup.
 # Wide white-sand beach with Biyangdo island views.
 ```
 

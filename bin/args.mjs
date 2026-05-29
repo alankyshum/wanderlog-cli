@@ -7,7 +7,7 @@ const BOOL_FLAGS = new Set([
 
 const VALUE_FLAGS = new Set([
   'config-dir', 'token-file', 'base-url', 'name', 'lat', 'lng', 'address',
-  'notes', 'query', 'duration', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
+  'notes', 'query', 'duration', 'cost', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
   'timeout', 'user-id', 'confirm', 'start-date', 'end-date', 'to-index',
   'alias', 'timezone',
 ]);

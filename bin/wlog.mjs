@@ -15,7 +15,7 @@ import { CLIError } from '../src/errors.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const VERSION = '0.3.8';
+const VERSION = '0.3.9';
 
 async function main() {
   try {
@@ -93,10 +93,11 @@ GLOBAL OPTIONS
   UNKNOWN rows (no Google businessStatus/business profile) are hidden unless --show-unknown is passed.
 
 PLACES ENRICH-ADD
-  wlog places enrich-add <tripKey> <sectionId> --query <text> [--duration <text>] [--notes <text>]
+  wlog places enrich-add <tripKey> <sectionId> --query <text> [--duration <text>] [--cost <text>] [--notes <text>]
   Adds a Google-enriched place and auto-prepends note headers:
     **Plan ~<duration>.**  (only when --duration is provided)
     **What:** <Google displayName> — <human Google type>.
+    **Cost:** <cost>.  (only when --cost is provided)
 
 EXAMPLES
   wlog auth login     Open an isolated Chrome/Chromium browser login and save connect.sid

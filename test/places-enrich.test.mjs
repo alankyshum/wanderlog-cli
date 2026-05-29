@@ -169,6 +169,7 @@ test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
     '--start', '09:00',
     '--end', '10:30',
     '--duration', '1–1.5 h',
+    '--cost', '₩3,000 entry. Card OK',
     '--no-ai',
     '--google-key', 'GOOGLE_FIXTURE_KEY',
   ]);
@@ -179,6 +180,7 @@ test('enrich-add args parse query, time, no-ai, and google-key flags', () => {
   assert.equal(parsed.options.start, '09:00');
   assert.equal(parsed.options.end, '10:30');
   assert.equal(parsed.options.duration, '1–1.5 h');
+  assert.equal(parsed.options.cost, '₩3,000 entry. Card OK');
   assert.equal(parsed.options.noAi, true);
   assert.equal(parsed.options.googleKey, 'GOOGLE_FIXTURE_KEY');
 });
@@ -215,6 +217,26 @@ test('formatNotesPreamble omits Plan when duration is missing', () => {
   assert.equal(
     formatNotesPreamble({ name: 'Fixture Cafe', primaryType: 'cafe', types: ['cafe'] }),
     '**What:** Fixture Cafe — café.\n',
+  );
+});
+
+test('formatNotesPreamble includes Cost after What when cost and duration are provided', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '1 h', cost: '₩3,000 entry. Card OK', name: 'Fixture Cafe', primaryType: 'cafe', types: ['cafe'] }),
+    '**Plan ~1 h.** \n**What:** Fixture Cafe — café.\n**Cost:** ₩3,000 entry. Card OK.\n',
+  );
+});
+
+test('formatNotesPreamble omits Cost when cost is missing', () => {
+  const preamble = formatNotesPreamble({ duration: '1 h', name: 'Fixture Cafe', primaryType: 'cafe', types: ['cafe'] });
+  assert.equal(preamble, '**Plan ~1 h.** \n**What:** Fixture Cafe — café.\n');
+  assert.doesNotMatch(preamble, /\*\*Cost:\*\*/u);
+});
+
+test('formatNotesPreamble does not duplicate Cost when notes already contain Cost header', () => {
+  assert.equal(
+    formatNotesPreamble({ duration: '1 h', cost: '₩3,000 entry', userNotes: '**Cost:** Free.\nBring towel.', name: 'Fixture Cafe', primaryType: 'cafe', types: ['cafe'] }),
+    '**Plan ~1 h.** \n**What:** Fixture Cafe — café.\n',
   );
 });
 
@@ -336,6 +358,168 @@ test('enrich-add command prepends auto headers before user notes in text ops', a
   assert.equal(insertedBlocks[0].place.name, '🤵‍♂️ Fixture Cafe');
   assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**Plan ~30 min.** \n**What:** Fixture Cafe — café.\nBreakfast stop\n' }]);
   assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
+});
+
+test('enrich-add command inserts Plan, What, and Cost headers in order before user notes', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/fixture123', displayName: { text: 'Fixture Cafe' } }] });
+    }
+    if (String(url).includes('/v1/places/places/fixture123')) {
+      return jsonResponse({
+        id: 'places/fixture123',
+        displayName: { text: 'Fixture Cafe' },
+        formattedAddress: '123 Example Street, Fixture City',
+        location: { latitude: 33.4996, longitude: 126.5312 },
+        types: ['cafe'],
+      });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({
+    configDir,
+    googleKey: 'GOOGLE_FIXTURE_KEY',
+    query: 'Fixture Cafe Jeju',
+    duration: '30 min',
+    cost: '₩3,000 entry. Card OK',
+    notes: 'Breakfast stop',
+  }).execute(
+    'places',
+    'enrich-add',
+    ['TESTTRIP1', 'sec-day-1'],
+  );
+
+  assert.equal(result.success, true);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**Plan ~30 min.** \n**What:** Fixture Cafe — café.\n**Cost:** ₩3,000 entry. Card OK.\nBreakfast stop\n' }]);
+});
+
+test('enrich-add command omits Cost header when cost is absent', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/fixture123', displayName: { text: 'Fixture Cafe' } }] });
+    }
+    if (String(url).includes('/v1/places/places/fixture123')) {
+      return jsonResponse({
+        id: 'places/fixture123',
+        displayName: { text: 'Fixture Cafe' },
+        formattedAddress: '123 Example Street, Fixture City',
+        location: { latitude: 33.4996, longitude: 126.5312 },
+        types: ['cafe'],
+      });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({
+    configDir,
+    googleKey: 'GOOGLE_FIXTURE_KEY',
+    query: 'Fixture Cafe Jeju',
+    duration: '30 min',
+  }).execute(
+    'places',
+    'enrich-add',
+    ['TESTTRIP1', 'sec-day-1'],
+  );
+
+  assert.equal(result.success, true);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**Plan ~30 min.** \n**What:** Fixture Cafe — café.\n' }]);
+  assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /\*\*Cost:\*\*/u);
+});
+
+test('enrich-add command does not duplicate Cost header already present in notes', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/fixture123', displayName: { text: 'Fixture Cafe' } }] });
+    }
+    if (String(url).includes('/v1/places/places/fixture123')) {
+      return jsonResponse({
+        id: 'places/fixture123',
+        displayName: { text: 'Fixture Cafe' },
+        formattedAddress: '123 Example Street, Fixture City',
+        location: { latitude: 33.4996, longitude: 126.5312 },
+        types: ['cafe'],
+      });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({
+    configDir,
+    googleKey: 'GOOGLE_FIXTURE_KEY',
+    query: 'Fixture Cafe Jeju',
+    duration: '30 min',
+    cost: '₩3,000 entry. Card OK',
+    notes: '**Cost:** Free.\nBreakfast stop',
+  }).execute(
+    'places',
+    'enrich-add',
+    ['TESTTRIP1', 'sec-day-1'],
+  );
+
+  assert.equal(result.success, true);
+  assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**Plan ~30 min.** \n**What:** Fixture Cafe — café.\n**Cost:** Free.\nBreakfast stop\n' }]);
+  assert.equal((insertedBlocks[0].text.ops[0].insert.match(/\*\*Cost:\*\*/gu) || []).length, 1);
 });
 
 test('plain add command AI-prefixes title and leaves notes unprefixed', async t => {
