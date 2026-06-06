@@ -53,9 +53,61 @@ test('escapes commas, semicolons, and newlines in text fields', () => {
   assert.match(flat, /DESCRIPTION:Bring snacks\\, water\\; umbrella\\nLine two/);
 });
 
-test('all-day events use DTSTART VALUE=DATE when no time is present', () => {
+test('never emits all-day VALUE=DATE events', () => {
   const flat = unfold(generateIcs({ trips: [baseTrip()] }));
-  assert.match(flat, /SUMMARY:Museum of Fixtures\r\nDTSTAMP:[^\r]+\r\nDTSTART;VALUE=DATE:20260401/);
+  assert.doesNotMatch(flat, /VALUE=DATE/);
+});
+
+test('timeless block after a timed block inherits a chained 2-hour slot', () => {
+  // Fixture day 1: "Test Harbor Cafe" 09:00-10:30, then timeless "Museum of Fixtures".
+  const flat = unfold(generateIcs({ trips: [baseTrip()] }));
+  assert.match(flat, /SUMMARY:Museum of Fixtures/);
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T103000\r\nDTEND;TZID=Asia\/Seoul:20260401T123000/);
+});
+
+test('timeless block before a timed block back-fills a 2-hour slot', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [
+    { id: 'b-timeless', type: 'place', place: { name: 'Early Stroll' }, startTime: null, endTime: null },
+    { id: 'b-timed', type: 'place', place: { name: 'Anchor Lunch' }, startTime: '12:00', endTime: '13:00' },
+  ];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Early Stroll/);
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T100000\r\nDTEND;TZID=Asia\/Seoul:20260401T120000/);
+});
+
+test('a section with no timed blocks emits no events', () => {
+  const trip = baseTrip();
+  trip.sections = [{
+    id: 'sec-day-1',
+    heading: 'Day 1 - Untimed',
+    blocks: [
+      { id: 'x1', type: 'place', place: { name: 'Untimed A' }, startTime: null, endTime: null },
+      { id: 'x2', type: 'place', place: { name: 'Untimed B' }, startTime: null, endTime: null },
+    ],
+  }];
+  const ics = generateIcs({ trips: [trip] });
+  assert.doesNotMatch(ics, /BEGIN:VEVENT/);
+});
+
+test('start-time-only block becomes a 2-hour timed event', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [trip.sections[0].blocks[0]];
+  trip.sections[0].blocks[0].startTime = '09:00';
+  trip.sections[0].blocks[0].endTime = null;
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T090000/);
+  assert.match(flat, /DTEND;TZID=Asia\/Seoul:20260401T110000/);
+});
+
+test('end-time-only block becomes a 2-hour timed event ending at that time', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [trip.sections[0].blocks[0]];
+  trip.sections[0].blocks[0].startTime = null;
+  trip.sections[0].blocks[0].endTime = '10:00';
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T080000/);
+  assert.match(flat, /DTEND;TZID=Asia\/Seoul:20260401T100000/);
 });
 
 test('timed events use DTSTART date-time with TZID when timezone is set', () => {

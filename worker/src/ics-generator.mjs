@@ -34,15 +34,10 @@ export function tripToEvents(trip = {}) {
   const sections = Array.isArray(trip.sections) ? trip.sections : [];
   const events = [];
   for (const [sectionIndex, section] of sections.entries()) {
-    const offset = dayOffset(section);
-    if (offset == null) continue;
-    const eventDate = addDays(startDate, offset);
+    const eventDate = sectionEventDate(section, startDate);
+    if (eventDate == null) continue;
     const sectionId = section.id ?? section.sectionId ?? sectionIndex;
-    const blocks = Array.isArray(section.blocks) ? section.blocks : [];
-    for (const [blockIndex, block] of blocks.entries()) {
-      const event = placeBlockToEvent({ block, blockIndex, eventDate, sectionId, tripKey, timezone });
-      if (event) events.push(event);
-    }
+    events.push(...sectionToEvents({ section, eventDate, sectionId, tripKey, timezone }));
   }
   return events;
 }
@@ -115,7 +110,67 @@ function eventToLines(event, dtstamp) {
   return lines;
 }
 
-function placeBlockToEvent({ block = {}, blockIndex, eventDate, sectionId, tripKey, timezone }) {
+// Build all events for one day/section. Blocks with explicit start/end times
+// keep them; timeless blocks inherit a default-length slot from their timed
+// neighbours (chaining forward from the previous timed block, or backward from
+// the next one). A section with no timed blocks at all emits nothing.
+function sectionToEvents({ section, eventDate, sectionId, tripKey, timezone }) {
+  const dateCompact = formatDate(eventDate);
+  const blocks = Array.isArray(section.blocks) ? section.blocks : [];
+  const candidates = [];
+  for (const [blockIndex, block] of blocks.entries()) {
+    const candidate = placeBlockToCandidate({ block, blockIndex, sectionId, tripKey });
+    if (candidate) candidates.push(candidate);
+  }
+
+  // 1. Resolve blocks that carry their own times.
+  for (const c of candidates) {
+    if (c.startTime || c.endTime) {
+      const moments = resolveTimedMoments(dateCompact, c.startTime, c.endTime);
+      c.startMoment = moments.startMoment;
+      c.endMoment = moments.endMoment;
+    }
+  }
+
+  // 2. Forward pass: timeless blocks between/after timed blocks chain off the
+  //    previous resolved end.
+  let cursorEnd = null;
+  for (const c of candidates) {
+    if (c.startMoment) { cursorEnd = c.endMoment; continue; }
+    if (cursorEnd) {
+      c.startMoment = cursorEnd;
+      c.endMoment = addMomentMinutes(cursorEnd, DEFAULT_DURATION_MINUTES);
+      cursorEnd = c.endMoment;
+    }
+  }
+
+  // 3. Backward pass: timeless blocks before any timed block chain back off the
+  //    next resolved start.
+  let cursorStart = null;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const c = candidates[i];
+    if (c.startMoment) { cursorStart = c.startMoment; continue; }
+    if (cursorStart) {
+      c.endMoment = cursorStart;
+      c.startMoment = addMomentMinutes(cursorStart, -DEFAULT_DURATION_MINUTES);
+      cursorStart = c.startMoment;
+    }
+  }
+
+  // 4. Emit only candidates that obtained a time anchor.
+  const events = [];
+  for (const c of candidates) {
+    if (!c.startMoment) continue;
+    events.push({
+      ...c.event,
+      start: momentToDt(c.startMoment, timezone),
+      end: momentToDt(c.endMoment, timezone),
+    });
+  }
+  return events;
+}
+
+function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
   if (block.type && block.type !== 'place') return null;
   const name = block.name ?? block.place?.name;
   if (!name) return null;
@@ -123,25 +178,21 @@ function placeBlockToEvent({ block = {}, blockIndex, eventDate, sectionId, tripK
   const url = `https://wanderlog.com/plan/${tripKey}`;
   const startTime = normalizeTime(block.startTime ?? block.start_time);
   const endTime = normalizeTime(block.endTime ?? block.end_time);
-  const timed = Boolean(startTime);
-  const start = timed
-    ? { kind: 'dateTime', date: formatDate(eventDate), time: timeCompact(startTime), timezone }
-    : { kind: 'date', date: formatDate(eventDate) };
-  const end = timed
-    ? buildEndDateTime(start.date, startTime, endTime, timezone)
-    : null;
   const notes = block.notes ?? extractText(block.text) ?? '';
-
   return {
-    uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${CALENDAR_HOST}`,
-    summary: name,
-    start,
-    end,
-    location: block.address ?? block.formatted_address ?? block.place?.formatted_address ?? '',
-    lat: block.lat ?? block.place?.geometry?.location?.lat ?? block.place?.location?.lat,
-    lng: block.lng ?? block.place?.geometry?.location?.lng ?? block.place?.location?.lng,
-    description: `${notes}${notes ? '\n\n' : ''}${url}`,
-    url,
+    startTime,
+    endTime,
+    startMoment: null,
+    endMoment: null,
+    event: {
+      uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${CALENDAR_HOST}`,
+      summary: name,
+      location: block.address ?? block.formatted_address ?? block.place?.formatted_address ?? '',
+      lat: block.lat ?? block.place?.geometry?.location?.lat ?? block.place?.location?.lat,
+      lng: block.lng ?? block.place?.geometry?.location?.lng ?? block.place?.location?.lng,
+      description: `${notes}${notes ? '\n\n' : ''}${url}`,
+      url,
+    },
   };
 }
 
@@ -151,15 +202,46 @@ function formatDtProp(name, value) {
   return `${name}${tz}:${value.date}T${value.time}`;
 }
 
-function buildEndDateTime(date, startTime, endTime, timezone) {
-  if (endTime) {
-    const startMinutes = minutesOf(startTime);
-    const endMinutes = minutesOf(endTime);
-    const endDate = endMinutes <= startMinutes ? addDays(compactToIso(date), 1) : date;
-    return { kind: 'dateTime', date: DATE_RE.test(endDate) ? formatDate(endDate) : endDate, time: timeCompact(endTime), timezone };
+// Default event length when only one of start/end time is known (minutes).
+const DEFAULT_DURATION_MINUTES = 120;
+
+// A "moment" is { date: 'YYYYMMDD', time: 'HH:MM' } — a wall-clock instant in
+// the trip timezone, allowing day roll-over via addMomentMinutes.
+function resolveTimedMoments(dateCompact, startTime, endTime) {
+  // Both present: honor them, rolling end into the next day for overnight spans.
+  if (startTime && endTime) {
+    const startMoment = { date: dateCompact, time: startTime };
+    const overnight = minutesOf(endTime) <= minutesOf(startTime);
+    const endMoment = overnight
+      ? { date: formatDate(addDays(compactToIso(dateCompact), 1)), time: endTime }
+      : { date: dateCompact, time: endTime };
+    return { startMoment, endMoment };
   }
-  const plusOneHour = addMinutes(date, startTime, 60);
-  return { kind: 'dateTime', date: plusOneHour.date, time: plusOneHour.time, timezone };
+  // Start only: default-length event starting then.
+  if (startTime) {
+    const startMoment = { date: dateCompact, time: startTime };
+    return { startMoment, endMoment: addMomentMinutes(startMoment, DEFAULT_DURATION_MINUTES) };
+  }
+  // End only: default-length event ending then.
+  const endMoment = { date: dateCompact, time: endTime };
+  return { startMoment: addMomentMinutes(endMoment, -DEFAULT_DURATION_MINUTES), endMoment };
+}
+
+function addMomentMinutes(moment, minutes) {
+  const shifted = addMinutes(moment.date, moment.time, minutes);
+  return { date: shifted.date, time: `${shifted.time.slice(0, 2)}:${shifted.time.slice(2, 4)}` };
+}
+
+function momentToDt(moment, timezone) {
+  return { kind: 'dateTime', date: moment.date, time: timeCompact(moment.time), timezone };
+}
+
+function sectionEventDate(section = {}, startDate) {
+  const explicit = String(section.date ?? section.startDate ?? section.start_date ?? '').trim();
+  if (DATE_RE.test(explicit)) return explicit;
+  const offset = dayOffset(section);
+  if (offset == null) return null;
+  return addDays(startDate, offset);
 }
 
 function dayOffset(section = {}) {
