@@ -125,3 +125,46 @@ test('empty sections produce no events', () => {
   const ics = generateIcs({ trips: [trip] });
   assert.doesNotMatch(ics, /BEGIN:VEVENT/);
 });
+
+test('timeless block is capped so it does not overlap the next timed anchor', () => {
+  // A 09:00-10:30, timeless B, then C 11:00-12:00. A naive 2h slot for B would
+  // run to 12:30 and swallow C; instead B must stop at C's 11:00 start.
+  const trip = baseTrip();
+  trip.sections[0].blocks = [
+    { id: 'a', type: 'place', place: { name: 'Anchor A' }, startTime: '09:00', endTime: '10:30' },
+    { id: 'b', type: 'place', place: { name: 'Timeless B' }, startTime: null, endTime: null },
+    { id: 'c', type: 'place', place: { name: 'Anchor C' }, startTime: '11:00', endTime: '12:00' },
+  ];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Timeless B/);
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T103000\r\nDTEND;TZID=Asia\/Seoul:20260401T110000/);
+});
+
+test('multiple timeless blocks between anchors keep up to 2h each without overlapping', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [
+    { id: 'a', type: 'place', place: { name: 'Anchor A' }, startTime: '09:00', endTime: '10:00' },
+    { id: 'b', type: 'place', place: { name: 'Timeless B' }, startTime: null, endTime: null },
+    { id: 'c', type: 'place', place: { name: 'Timeless C' }, startTime: null, endTime: null },
+    { id: 'd', type: 'place', place: { name: 'Anchor D' }, startTime: '15:00', endTime: '16:00' },
+  ];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  // B chains from 10:00 and keeps its full 2h (room available before D).
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T100000\r\nDTEND;TZID=Asia\/Seoul:20260401T120000/);
+  // C chains from 12:00, full 2h to 14:00, still clear of D at 15:00.
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T120000\r\nDTEND;TZID=Asia\/Seoul:20260401T140000/);
+});
+
+test('timeless block is capped against the next block resolved start (end-only anchor)', () => {
+  // A 09:00-10:30, timeless B, then an end-only block ending 14:00 (resolved
+  // start 12:00). B must stop at 12:00, not overlap into the 12:00-14:00 slot.
+  const trip = baseTrip();
+  trip.sections[0].blocks = [
+    { id: 'a', type: 'place', place: { name: 'Anchor A' }, startTime: '09:00', endTime: '10:30' },
+    { id: 'b', type: 'place', place: { name: 'Timeless B' }, startTime: null, endTime: null },
+    { id: 'c', type: 'place', place: { name: 'End Only C' }, startTime: null, endTime: '14:00' },
+  ];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Timeless B/);
+  assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T103000\r\nDTEND;TZID=Asia\/Seoul:20260401T120000/);
+});

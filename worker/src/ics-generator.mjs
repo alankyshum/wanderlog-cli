@@ -123,23 +123,47 @@ function sectionToEvents({ section, eventDate, sectionId, tripKey, timezone }) {
     if (candidate) candidates.push(candidate);
   }
 
-  // 1. Resolve blocks that carry their own times.
+  // 1. Resolve blocks that carry their own times. Mark them as anchors and
+  //    record which side(s) are explicit ("hard") vs an assumed default slot.
   for (const c of candidates) {
     if (c.startTime || c.endTime) {
       const moments = resolveTimedMoments(dateCompact, c.startTime, c.endTime);
       c.startMoment = moments.startMoment;
       c.endMoment = moments.endMoment;
+      c.anchored = true;
+      c.hardStart = Boolean(c.startTime);
+      c.hardEnd = Boolean(c.endTime);
     }
   }
 
+  // Nearest anchored block strictly after each index — the boundary that an
+  // assumed duration must not run past.
+  const nextAnchorStart = new Array(candidates.length).fill(null);
+  let upcomingAnchor = null;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    nextAnchorStart[i] = upcomingAnchor;
+    if (candidates[i].anchored) upcomingAnchor = candidates[i].startMoment;
+  }
+
   // 2. Forward pass: timeless blocks between/after timed blocks chain off the
-  //    previous resolved end.
+  //    previous resolved end. Assumed ends are capped inline so they never
+  //    overlap the next anchored event; explicit end times are honored as-is.
   let cursorEnd = null;
-  for (const c of candidates) {
-    if (c.startMoment) { cursorEnd = c.endMoment; continue; }
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    if (c.anchored) {
+      if (!c.hardEnd) {
+        c.endMoment = capEndAtAnchor(c.startMoment, c.endMoment, nextAnchorStart[i]);
+      }
+      cursorEnd = c.endMoment;
+      continue;
+    }
     if (cursorEnd) {
       c.startMoment = cursorEnd;
-      c.endMoment = addMomentMinutes(cursorEnd, DEFAULT_DURATION_MINUTES);
+      const rawEnd = addMomentMinutes(cursorEnd, DEFAULT_DURATION_MINUTES);
+      c.endMoment = capEndAtAnchor(cursorEnd, rawEnd, nextAnchorStart[i]);
+      c.hardStart = true;
+      c.hardEnd = false;
       cursorEnd = c.endMoment;
     }
   }
@@ -230,6 +254,22 @@ function resolveTimedMoments(dateCompact, startTime, endTime) {
 function addMomentMinutes(moment, minutes) {
   const shifted = addMinutes(moment.date, moment.time, minutes);
   return { date: shifted.date, time: `${shifted.time.slice(0, 2)}:${shifted.time.slice(2, 4)}` };
+}
+
+// Absolute ordering value for a moment (wall-clock minutes; all moments share
+// the trip timezone, so treating them as UTC is fine for comparison).
+function momentValue(moment) {
+  const [y, mo, d] = compactToIso(moment.date).split('-').map(Number);
+  const [h, mi] = moment.time.split(':').map(Number);
+  return Date.UTC(y, mo - 1, d, h, mi) / 60000;
+}
+
+// Pull an assumed end back so it never runs past the next anchored event's
+// start. Never invert the slot — clamp to a zero-length point at worst.
+function capEndAtAnchor(startMoment, endMoment, anchorStart) {
+  if (!anchorStart) return endMoment;
+  if (momentValue(endMoment) <= momentValue(anchorStart)) return endMoment;
+  return momentValue(anchorStart) > momentValue(startMoment) ? anchorStart : startMoment;
 }
 
 function momentToDt(moment, timezone) {
