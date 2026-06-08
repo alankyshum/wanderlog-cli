@@ -9,8 +9,8 @@ zone_name = "alanshum.org"
 
 [[kv_namespaces]]
 binding = "WANDERLOG_KV"
-id = "PLACEHOLDER_KV_ID"
-preview_id = "PLACEHOLDER_PREVIEW_KV_ID"
+id = "ddd6a187b4e14f0fb42a1c5be719be47"
+preview_id = "012f6029477b4f668951916a776bc461"
 
 [vars]
 WANDERLOG_BASE_URL = "https://wanderlog.com"
