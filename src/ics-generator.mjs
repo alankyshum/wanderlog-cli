@@ -202,6 +202,9 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
   const startTime = normalizeTime(block.startTime ?? block.start_time);
   const endTime = normalizeTime(block.endTime ?? block.end_time);
   const notes = block.notes ?? extractText(block.text) ?? '';
+  // titleOverride is populated out-of-band (worker link-title enrichment) when a
+  // note is just a URL; it wins over the note/name-derived title.
+  const titleOverride = block.titleOverride ?? block.place?.titleOverride ?? null;
   return {
     startTime,
     endTime,
@@ -209,7 +212,7 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
     endMoment: null,
     event: {
       uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${CALENDAR_HOST}`,
-      summary: deriveSummary(name, notes),
+      summary: titleOverride || deriveSummary(name, notes),
       location: block.address ?? block.formatted_address ?? block.place?.formatted_address ?? '',
       lat: block.lat ?? block.place?.geometry?.location?.lat ?? block.place?.location?.lat,
       lng: block.lng ?? block.place?.geometry?.location?.lng ?? block.place?.location?.lng,
@@ -224,10 +227,15 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
 // to 10 words) as the event title, falling back to the place name when the note
 // is missing or empty.
 function deriveSummary(name, notes) {
+  // Prefer the first human line of the note. A note often leads with a bare URL
+  // (e.g. a ticket link) followed by the real description on the next line, so
+  // skip lines that are nothing but a URL; URL-only notes are handled out-of-band
+  // by link-title enrichment (titleOverride) and otherwise fall back to name.
+  const isBareUrl = line => /^https?:\/\/\S+$/i.test(line);
   const firstLine = String(notes ?? '')
     .split(/\r?\n/)
     .map(line => line.trim())
-    .find(line => line.length > 0);
+    .find(line => line.length > 0 && !isBareUrl(line));
   if (!firstLine) return name;
   const cleaned = firstLine.replace(/^[-*\u2022\u2013\u2014]+\s+/, '').trim();
   const words = cleaned.split(/\s+/).filter(Boolean);

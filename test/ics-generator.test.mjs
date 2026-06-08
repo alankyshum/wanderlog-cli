@@ -206,3 +206,26 @@ test('summary falls back to the place name when the note is missing', () => {
   const flat = unfold(generateIcs({ trips: [trip] }));
   assert.match(flat, /SUMMARY:Lions Rise/);
 });
+
+test('summary skips a leading bare-URL line and uses the next human line', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [{
+    id: 'u', type: 'place', place: { name: 'EGA Hong Kong' },
+    notes: 'https://egatix.com/products/love-romance-reimagined-by-ega\nCandlelight concert',
+    startTime: '19:00', endTime: '20:30',
+  }];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Candlelight concert/);
+  assert.doesNotMatch(flat, /SUMMARY:https?:/);
+});
+
+test('summary falls back to place name when the note is only a bare URL', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [{
+    id: 'u2', type: 'place', place: { name: 'EGA Hong Kong' },
+    notes: 'https://egatix.com/products/love',
+    startTime: '19:00', endTime: '20:30',
+  }];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:EGA Hong Kong/);
+});

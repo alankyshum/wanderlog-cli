@@ -1,6 +1,7 @@
 import { fetchTrip } from './client.mjs';
 import { generateIcs, computeContentHash } from './ics-generator.mjs';
 import { normalizeTrip } from './models.mjs';
+import { enrichTripsWithLinkTitles } from './link-title.mjs';
 import {
   ICS_CACHE_KEY,
   ICS_ETAG_KEY,
@@ -62,6 +63,7 @@ export async function handlePreviewIcs(request, env) {
   if (!planId) return jsonResponse({ error: 'planId is required' }, { status: 400 });
   const raw = await fetchTrip(env, planId);
   const trip = normalizeTrip(raw);
+  await enrichTripsWithLinkTitles(env, [trip]);
   const ics = generateIcs({ trips: [trip], calendarVersion: env.CALENDAR_VERSION || '0.1.0', subscriptionVersion: await getVersion(env) });
   return new Response(ics, { status: 200, headers: calendarHeaders(env, `"preview-${await computeContentHash(ics)}"`, await getVersion(env)) });
 }
@@ -91,6 +93,8 @@ async function buildAndCacheFeed(env) {
       await env.WANDERLOG_KV.put(tripLastFetchKey(subscription.planId), JSON.stringify({ fetchedAt: new Date().toISOString(), ok: false, error: failure.error }));
     }
   }
+  // Replace bare-URL note titles with the link's OG/document title (KV-cached).
+  await enrichTripsWithLinkTitles(env, trips);
   const ics = generateIcs({ trips, calendarVersion: env.CALENDAR_VERSION || '0.1.0', subscriptionVersion: version });
   const etag = `"v${version}-${await computeContentHash(ics)}"`;
   await env.WANDERLOG_KV.put(ICS_CACHE_KEY, ics, { expirationTtl: CACHE_TTL_SECONDS });
