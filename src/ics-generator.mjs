@@ -209,7 +209,7 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
     endMoment: null,
     event: {
       uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${CALENDAR_HOST}`,
-      summary: name,
+      summary: deriveSummary(name, notes),
       location: block.address ?? block.formatted_address ?? block.place?.formatted_address ?? '',
       lat: block.lat ?? block.place?.geometry?.location?.lat ?? block.place?.location?.lat,
       lng: block.lng ?? block.place?.geometry?.location?.lng ?? block.place?.location?.lng,
@@ -217,6 +217,23 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
       url,
     },
   };
+}
+
+// Itinerary item `name` is the place/location name; the user's actual plan for
+// the stop lives in the note text. Prefer the first non-empty note line (capped
+// to 10 words) as the event title, falling back to the place name when the note
+// is missing or empty.
+function deriveSummary(name, notes) {
+  const firstLine = String(notes ?? '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => line.length > 0);
+  if (!firstLine) return name;
+  const cleaned = firstLine.replace(/^[-*\u2022\u2013\u2014]+\s+/, '').trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return name;
+  const title = words.slice(0, 10).join(' ');
+  return words.length > 10 ? `${title}\u2026` : title;
 }
 
 function formatDtProp(name, value) {

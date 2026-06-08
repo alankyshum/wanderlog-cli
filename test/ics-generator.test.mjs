@@ -15,11 +15,13 @@ function unfold(ics) {
   return ics.replace(/\r\n[ \t]/g, '');
 }
 
-test('generateIcs returns a VCALENDAR with visible AI-prefixed summary', () => {
+test('generateIcs returns a VCALENDAR and derives summary from the item note', () => {
   const ics = generateIcs({ trips: [baseTrip()], subscriptionVersion: 7 });
   assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
   assert.match(ics, /\r\nEND:VCALENDAR\r\n$/);
-  assert.match(unfold(ics), /SUMMARY:🤵‍♂️ Test Harbor Cafe/);
+  // block-001's note is 'Breakfast and planning notes'; the place name
+  // '🤵‍♂️ Test Harbor Cafe' is only the location and moves to LOCATION.
+  assert.match(unfold(ics), /SUMMARY:Breakfast and planning notes/);
 });
 
 test('UID uses stable wlog trip-section-block format', () => {
@@ -61,7 +63,7 @@ test('never emits all-day VALUE=DATE events', () => {
 test('timeless block after a timed block inherits a chained 2-hour slot', () => {
   // Fixture day 1: "Test Harbor Cafe" 09:00-10:30, then timeless "Museum of Fixtures".
   const flat = unfold(generateIcs({ trips: [baseTrip()] }));
-  assert.match(flat, /SUMMARY:Museum of Fixtures/);
+  assert.match(flat, /SUMMARY:No fixed time/);
   assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T103000\r\nDTEND;TZID=Asia\/Seoul:20260401T123000/);
 });
 
@@ -167,4 +169,40 @@ test('timeless block is capped against the next block resolved start (end-only a
   const flat = unfold(generateIcs({ trips: [trip] }));
   assert.match(flat, /SUMMARY:Timeless B/);
   assert.match(flat, /DTSTART;TZID=Asia\/Seoul:20260401T103000\r\nDTEND;TZID=Asia\/Seoul:20260401T120000/);
+});
+
+test('summary uses the first 10 words of the note, with an ellipsis when longer', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [{
+    id: 'gym', type: 'place', place: { name: 'Lions Rise' },
+    notes: 'Gym with SKY one two three four five six seven eight nine',
+    startTime: '10:00', endTime: '11:00',
+  }];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Gym with SKY one two three four five six seven\u2026/);
+  // The place/location name is preserved on the LOCATION line, not the title.
+  assert.doesNotMatch(flat, /SUMMARY:Lions Rise/);
+});
+
+test('summary takes only the first non-empty note line and strips a leading bullet', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [{
+    id: 'k', type: 'place', place: { name: 'Lions Rise' },
+    notes: '- Gym with SKY\nAddress: 123 Somewhere',
+    startTime: '10:00', endTime: '11:00',
+  }];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Gym with SKY/);
+  assert.doesNotMatch(flat, /SUMMARY:- Gym/);
+  assert.doesNotMatch(flat, /SUMMARY:Address/);
+});
+
+test('summary falls back to the place name when the note is missing', () => {
+  const trip = baseTrip();
+  trip.sections[0].blocks = [{
+    id: 'n', type: 'place', place: { name: 'Lions Rise' },
+    startTime: '10:00', endTime: '11:00',
+  }];
+  const flat = unfold(generateIcs({ trips: [trip] }));
+  assert.match(flat, /SUMMARY:Lions Rise/);
 });
