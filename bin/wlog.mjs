@@ -75,6 +75,7 @@ COMMANDS
   trips         Trip management (list, create, get, rename, set-dates, delete)
   sections      Itinerary sections (list, add, rename, delete, move)
   places        Place management (search, add, enrich-add, check-status, update, delete, move)
+  lodging       Native hotel cards and lodging entries (add, add-place)
   calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh)
   debug         Debugging utilities (fetch, inspect)
 
@@ -103,6 +104,7 @@ EXAMPLES
   wlog auth login     Open an isolated Chrome/Chromium browser login and save connect.sid
   wlog trips list
   wlog places enrich-add "Jeju" 21652664 --query "Handam Coastal Walk Jeju" --duration "1 h" --start 10:30 --end 12:30
+  wlog lodging add "Jeju" --query "RIMBA by AYANA Bali" --check-in 2027-09-22 --check-out 2027-09-24 --room "Resort View Room"
   wlog places check-status "Jeju" --json --show-unknown
   wlog calendar subscribe "Jeju"
 

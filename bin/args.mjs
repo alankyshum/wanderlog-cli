@@ -2,14 +2,14 @@ import { UsageError } from '../src/errors.mjs';
 
 const BOOL_FLAGS = new Set([
   'help', 'version', 'json', 'verbose', 'quiet', 'no-open',
-  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown',
+  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown', 'forbid-hotel-bookings',
 ]);
 
 const VALUE_FLAGS = new Set([
   'config-dir', 'token-file', 'base-url', 'name', 'lat', 'lng', 'address',
   'notes', 'query', 'duration', 'cost', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
-  'timeout', 'user-id', 'confirm', 'start-date', 'end-date', 'to-index',
-  'alias', 'timezone',
+  'timeout', 'user-id', 'confirm', 'start-date', 'end-date', 'check-in', 'check-out', 'to-index',
+  'alias', 'timezone', 'room', 'traveler-names', 'confirmation-number', 'section-id',
 ]);
 
 const OPTION_KEYS = {
@@ -24,10 +24,16 @@ const OPTION_KEYS = {
   'no-ai': 'noAi',
   'with-photos': 'withPhotos',
   'show-unknown': 'showUnknown',
+  'forbid-hotel-bookings': 'forbidHotelBookings',
   'start-date': 'startDate',
   'end-date': 'endDate',
+  'check-in': 'checkIn',
+  'check-out': 'checkOut',
   'to-index': 'toIndex',
   'google-key': 'googleKey',
+  'traveler-names': 'travelerNames',
+  'confirmation-number': 'confirmationNumber',
+  'section-id': 'sectionId',
   cookie: 'cookieString',
 };
 

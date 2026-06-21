@@ -1,7 +1,7 @@
 import { CLIError, UsageError } from './errors.mjs';
 import { formatOutput } from './output.mjs';
 
-const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'calendar', 'debug']);
+const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'lodging', 'calendar', 'debug']);
 
 export function createCommandDispatcher(globalOptions = {}) {
   return {
@@ -13,6 +13,7 @@ export function createCommandDispatcher(globalOptions = {}) {
       if (command === 'trips') return dispatchTrips(globalOptions, subcommand, args);
       if (command === 'sections') return dispatchSections(globalOptions, subcommand, args);
       if (command === 'places') return dispatchPlaces(globalOptions, subcommand, args);
+      if (command === 'lodging') return dispatchLodging(globalOptions, subcommand, args);
       if (command === 'calendar') return dispatchCalendar(globalOptions, subcommand, args);
       if (command === 'debug') return dispatchDebug(globalOptions, subcommand, args);
       return notImplemented();
@@ -60,11 +61,54 @@ async function dispatchTrips(opts, subcommand, args) {
     case 'set-dates':
       await requireAuth(opts);
       return ok(await trips.setDates(opts, args[0], args[1], args[2]));
+    case 'validate':
+      await requireAuth(opts);
+      return ok(await trips.validateTrip(opts, args[0], { forbidHotelBookings: Boolean(opts.forbidHotelBookings) }));
     case 'delete':
       await requireAuth(opts);
       return ok(await trips.deleteTrip(opts, args[0], { confirm: opts.confirm }));
     default:
-      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|delete>');
+      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|validate|delete>');
+  }
+}
+
+async function dispatchLodging(opts, subcommand, args) {
+  const { requireAuth } = await import('./auth.mjs');
+  const lodging = await import('./lodging.mjs');
+  await requireAuth(opts);
+  switch (subcommand) {
+    case 'add':
+      return ok(await lodging.addLodging(opts, args[0], {
+        query: opts.query,
+        name: opts.name,
+        notes: opts.notes,
+        room: opts.room,
+        checkIn: opts.checkIn,
+        checkOut: opts.checkOut,
+        confirmationNumber: opts.confirmationNumber,
+        travelerNames: opts.travelerNames,
+        sectionId: opts.sectionId,
+        index: opts.index,
+        ai: !opts.noAi,
+        googleKey: opts.googleKey,
+      }));
+    case 'add-place':
+      return ok(await lodging.addLodgingPlace(opts, args[0], args[1], {
+        query: opts.query,
+        name: opts.name,
+        lat: opts.lat,
+        lng: opts.lng,
+        address: opts.address,
+        notes: opts.notes,
+        cost: opts.cost,
+        checkIn: opts.checkIn,
+        checkOut: opts.checkOut,
+        ai: !opts.noAi,
+        googleKey: opts.googleKey,
+        withPhotos: Boolean(opts.withPhotos),
+      }));
+    default:
+      throw new UsageError('Usage: wlog lodging <add|add-place> <tripKey> [sectionId] --query <hotel> --check-in YYYY-MM-DD --check-out YYYY-MM-DD');
   }
 }
 
@@ -209,7 +253,7 @@ AUTH LOGIN
 FALLBACK
   wlog auth import-cookie --cookie 'connect.sid=...'
 `,
-    trips: 'Usage: wlog trips <list|get|create|rename|set-dates|delete> [tripKey] [options]',
+    trips: 'Usage: wlog trips <list|get|create|rename|set-dates|validate|delete> [tripKey] [options]',
     sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
     places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
 
@@ -229,8 +273,19 @@ CHECK STATUS
 
   Sweeps itinerary place IDs for Google business status issues.
   Shows CLOSED_TEMPORARILY, CLOSED_PERMANENTLY, PLACE_ID_INVALID, and ERR_* by default.
-  Hides UNKNOWN rows (places without businessStatus/business profile) unless --show-unknown is passed.
-  OPERATIONAL rows are never listed, but are counted in the summary.`,
+   Hides UNKNOWN rows (places without businessStatus/business profile) unless --show-unknown is passed.
+   OPERATIONAL rows are never listed, but are counted in the summary.`,
+    lodging: `Usage: wlog lodging add <tripKey> --query <hotel> --check-in YYYY-MM-DD --check-out YYYY-MM-DD [options]
+
+Adds a native Wanderlog hotel card in a type=hotels / mode=placeList section,
+using the reference-derived schema: a type=place block with Google place details
+and hotel.{checkIn,checkOut,confirmationNumber,travelerNames}.
+
+Options: --query, --check-in, --check-out, --room, --traveler-names,
+--confirmation-number, --section-id, --index, --notes, --no-ai, --google-key.
+
+Fallback: wlog lodging add-place <tripKey> <daySectionId> adds lodging as a
+normal day-plan place block when native hotel cards are not desired.`,
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
   };

@@ -256,6 +256,48 @@ test('enrich-add args parse with-photos flag', () => {
   assert.equal(parsed.options.withPhotos, true);
 });
 
+test('lodging add-place args parse check-in and check-out flags', () => {
+  const parsed = parseArgs([
+    'lodging', 'add-place', 'TESTTRIP1', 'sec-day-1',
+    '--query', 'RIMBA by AYANA Bali',
+    '--check-in', '2027-09-22',
+    '--check-out', '2027-09-24',
+    '--notes', 'Guest room block',
+  ]);
+  assert.equal(parsed.command, 'lodging');
+  assert.equal(parsed.subcommand, 'add-place');
+  assert.deepEqual(parsed.positional, ['TESTTRIP1', 'sec-day-1']);
+  assert.equal(parsed.options.query, 'RIMBA by AYANA Bali');
+  assert.equal(parsed.options.checkIn, '2027-09-22');
+  assert.equal(parsed.options.checkOut, '2027-09-24');
+  assert.equal(parsed.options.notes, 'Guest room block');
+});
+
+test('lodging add args parse native hotel card flags', () => {
+  const parsed = parseArgs([
+    'lodging', 'add', 'TESTTRIP1',
+    '--query', 'RIMBA by AYANA Bali',
+    '--check-in', '2027-09-22',
+    '--check-out', '2027-09-24',
+    '--room', '25 guest Resort View Rooms',
+    '--traveler-names', 'Guest block',
+    '--confirmation-number', 'H-123',
+    '--section-id', 'hotels-sec',
+    '--index', '1',
+  ]);
+  assert.equal(parsed.command, 'lodging');
+  assert.equal(parsed.subcommand, 'add');
+  assert.deepEqual(parsed.positional, ['TESTTRIP1']);
+  assert.equal(parsed.options.query, 'RIMBA by AYANA Bali');
+  assert.equal(parsed.options.checkIn, '2027-09-22');
+  assert.equal(parsed.options.checkOut, '2027-09-24');
+  assert.equal(parsed.options.room, '25 guest Resort View Rooms');
+  assert.equal(parsed.options.travelerNames, 'Guest block');
+  assert.equal(parsed.options.confirmationNumber, 'H-123');
+  assert.equal(parsed.options.sectionId, 'hotels-sec');
+  assert.equal(parsed.options.index, '1');
+});
+
 test('enrich-add command inserts enriched block and verifies block count increment', async t => {
   const configDir = await tmpConfigWithToken(t);
   const fetches = [];
@@ -309,6 +351,143 @@ test('enrich-add command inserts enriched block and verifies block count increme
   assert.deepEqual(insertedBlocks[0].text.ops, [{ insert: '**What:** Fixture Cafe — café.\n' }]);
   assert.doesNotMatch(insertedBlocks[0].text.ops[0].insert, /^\[[a-f0-9]{8}\]\n/u);
   assert.deepEqual(JSON.parse(fetches.find(entry => entry.url.includes('/applyOps')).init.body).ops[0].p, ['itinerary', 'sections', 0, 'blocks', 0]);
+});
+
+test('lodging add-place inserts lodging as normal place block with lodging notes', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const tripBefore = tripFixture([]);
+  const insertedBlocks = [];
+  const tripAfter = tripFixture(insertedBlocks);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/hotel123', displayName: { text: 'RIMBA by AYANA Bali' } }] });
+    }
+    if (String(url).includes('/v1/places/places/hotel123')) {
+      return jsonResponse({
+        id: 'places/hotel123',
+        displayName: { text: 'RIMBA by AYANA Bali' },
+        formattedAddress: 'Jimbaran, Bali, Indonesia',
+        location: { latitude: -8.7934334, longitude: 115.1394673 },
+        types: ['hotel', 'lodging'],
+      });
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedBlocks.push(body.ops[0].li);
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({
+    configDir,
+    googleKey: 'GOOGLE_FIXTURE_KEY',
+    query: 'RIMBA by AYANA Bali',
+    checkIn: '2027-09-22',
+    checkOut: '2027-09-24',
+    notes: 'Guest room block',
+  }).execute('lodging', 'add-place', ['TESTTRIP1', 'sec-day-1']);
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.representation, 'place');
+  assert.equal(result.data.lodgingType, 'day-plan-place');
+  assert.equal(insertedBlocks[0].type, 'place');
+  assert.equal('hotel' in insertedBlocks[0], false);
+  assert.match(insertedBlocks[0].text.ops[0].insert, /\*\*Lodging:\*\* Check-in 2027-09-22; check-out 2027-09-24\./);
+  assert.match(insertedBlocks[0].text.ops[0].insert, /Guest room block/);
+});
+
+test('lodging add inserts native hotel section and hotel card schema', async t => {
+  const configDir = await tmpConfigWithToken(t);
+  const fetches = [];
+  const insertedSections = [];
+  const tripBefore = tripFixture([]);
+  const tripAfter = {
+    tripPlan: {
+      ...tripBefore.tripPlan,
+      userId: 'fixture-user',
+      itinerary: {
+        sections: [insertedSections[0] || tripBefore.tripPlan.itinerary.sections[0]],
+      },
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    fetches.push({ url: String(url), init });
+    if (String(url).includes('/api/tripPlans/TESTTRIP1?')) {
+      const body = fetches.filter(entry => entry.url.includes('/api/tripPlans/TESTTRIP1?')).length === 1 ? tripBefore : tripAfter;
+      return jsonResponse(body);
+    }
+    if (String(url).includes('places:searchText')) {
+      return jsonResponse({ places: [{ id: 'places/hotel123', displayName: { text: 'RIMBA by AYANA Bali' } }] });
+    }
+    if (String(url).includes('/v1/places/places/hotel123')) {
+      return jsonResponse(fullHotelDetailsFixture());
+    }
+    if (String(url).includes('/api/tripPlans/TESTTRIP1/applyOps')) {
+      const body = JSON.parse(init.body);
+      insertedSections.push(body.ops[0].li);
+      tripAfter.tripPlan.itinerary.sections = [body.ops[0].li, tripBefore.tripPlan.itinerary.sections[0]];
+      return jsonResponse({ ok: true });
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const result = await createCommandDispatcher({
+    configDir,
+    googleKey: 'GOOGLE_FIXTURE_KEY',
+    query: 'RIMBA by AYANA Bali',
+    checkIn: '2027-09-22',
+    checkOut: '2027-09-24',
+    room: '25 guest Resort View Rooms',
+    travelerNames: '25 guest Resort View Rooms',
+  }).execute('lodging', 'add', ['TESTTRIP1']);
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.representation, 'hotel');
+  assert.equal(result.data.lodgingType, 'native-hotel-card');
+  assert.equal(insertedSections.length, 1);
+  const section = insertedSections[0];
+  assert.equal(section.type, 'hotels');
+  assert.equal(section.mode, 'placeList');
+  assert.equal(section.heading, 'Hotels and lodging');
+  assert.equal(section.placeMarkerColor, '#e67e22');
+  assert.equal(section.placeMarkerIcon, 'bed');
+  assert.deepEqual(section.text, { ops: [{ insert: '\n' }] });
+  assert.equal(section.blocks.length, 1);
+  const block = section.blocks[0];
+  assert.equal(block.type, 'place');
+  assert.equal(block.place.name, '🤵‍♂️ RIMBA by AYANA Bali');
+  assert.equal(block.place.place_id, 'places/hotel123');
+  assert.equal(block.place.icon, 'https://maps.gstatic.com/mapfiles/place_api/icons/v2/hotel_pinlet.png');
+  assert.deepEqual(Object.keys(block.hotel), ['checkIn', 'checkOut', 'confirmationNumber', 'travelerNames']);
+  assert.deepEqual(block.hotel, {
+    checkIn: '2027-09-22',
+    checkOut: '2027-09-24',
+    confirmationNumber: '',
+    travelerNames: ['25 guest Resort View Rooms'],
+  });
+  assert.equal(block.imageSize, 'small');
+  assert.deepEqual(block.upvotedBy, []);
+  assert.equal(block.travelMode, null);
+  assert.deepEqual(block.attachments, []);
+  assert.deepEqual(block.addedBy, { type: 'user', userId: 'fixture-user' });
+  assert.deepEqual(block.text.ops, [{ insert: '**What:** RIMBA by AYANA Bali — guesthouse / hotel.\n25 guest Resort View Rooms.\n' }]);
 });
 
 test('enrich-add command prepends auto headers before user notes in text ops', async t => {
@@ -657,7 +836,14 @@ function tripFixture(blocks) {
       key: 'TESTTRIP1',
       title: 'Fixture Trip',
       itinerary: {
-        sections: [{ id: 'sec-day-1', heading: 'Day 1', blocks }],
+        sections: [{
+          id: 'sec-day-1',
+          heading: 'Day 1',
+          type: 'normal',
+          mode: 'dayPlan',
+          text: { ops: [{ insert: '\n' }] },
+          blocks,
+        }],
       },
     },
   };
@@ -665,4 +851,27 @@ function tripFixture(blocks) {
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function fullHotelDetailsFixture() {
+  return {
+    id: 'places/hotel123',
+    displayName: { text: 'RIMBA by AYANA Bali' },
+    formattedAddress: 'Jimbaran, Bali, Indonesia',
+    shortFormattedAddress: 'Jimbaran, Bali',
+    location: { latitude: -8.7934334, longitude: 115.1394673 },
+    types: ['resort_hotel', 'hotel', 'lodging', 'point_of_interest', 'establishment'],
+    rating: 4.7,
+    userRatingCount: 6499,
+    googleMapsUri: 'https://maps.google.com/?cid=fixture',
+    businessStatus: 'OPERATIONAL',
+    internationalPhoneNumber: '+62 361 8468468',
+    nationalPhoneNumber: '(0361) 8468468',
+    adrFormatAddress: '<span>Jimbaran</span>',
+    utcOffsetMinutes: 480,
+    iconMaskBaseUri: 'https://maps.gstatic.com/mapfiles/place_api/icons/v2/hotel_pinlet',
+    addressComponents: [{ longText: 'Bali', shortText: 'Bali', types: ['administrative_area_level_1'] }],
+    plusCode: { globalCode: '6P3Q644Q+JQ', compoundCode: '644Q+JQ Jimbaran' },
+    reviews: [{ text: { text: 'Great resort', languageCode: 'en' }, rating: 5 }],
+  };
 }

@@ -21,6 +21,9 @@ Auth is stored at `~/.config/wanderlog/token.json`; re-run `wlog auth login` on 
 | `wlog trips list` / `wlog trips get <tripKey>` | Find and inspect trips. |
 | `wlog sections list <tripKey>` | Find section ids before mutations. |
 | `wlog places enrich-add <tripKey> <sectionId> --query "..."` | Add a Google-enriched place block. |
+| `wlog lodging add <tripKey> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD` | Add lodging as a native Wanderlog hotel card. |
+| `wlog lodging add-place <tripKey> <daySectionId> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD` | Fallback lodging as a normal day-plan place block. |
+| `wlog trips validate <tripKey> [--forbid-hotel-bookings]` | Validate trip sections/blocks after mutations. |
 | `wlog places check-status <tripKey> [--json] [--show-unknown]` | Sweep itinerary places, hotels, flights, and rental cars for non-operational Google business statuses and stale Google IDs. |
 | `wlog calendar subscribe <tripKey>` | Subscribe a trip to the stable calendar feed. |
 
@@ -87,6 +90,27 @@ Implementation notes:
 - Maps v1 details into Wanderlog's legacy `place.{name, place_id, geometry.location, formatted_address, vicinity, rating, user_ratings_total, website, address_components, opening_hours, types, url, business_status, photo_urls}` shape.
 - Inserts through Wanderlog `/applyOps` via `src/client.mjs`, then re-fetches the trip and verifies the target section block count incremented by one.
 - `--with-photos` expands up to three Google Places v1 photo media URLs into `photo_urls`.
+
+## Lodging
+
+Use `wlog lodging add` for a native Wanderlog hotel card with check-in/check-out:
+
+```bash
+wlog lodging add <tripKey> \
+  --query "RIMBA by AYANA Bali" \
+  --check-in 2027-09-22 --check-out 2027-09-24 \
+  --room "25 guest Resort View Rooms" \
+  --traveler-names "25 guest Resort View Rooms"
+wlog trips validate <tripKey> --json
+```
+
+The native hotel-card schema is verified from plan `tvwkfegcyqnnlnyc`, lodging
+item `Atour Hotel Shanghai Bund Nanjing East Road`: a `type:"hotels"`,
+`mode:"placeList"`, `heading:"Hotels and lodging"`, `placeMarkerIcon:"bed"`
+section containing `type:"place"` blocks with full Google place details and
+`hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a
+`type:"hotel"` block. `wlog lodging add-place` remains available as a fallback
+normal day-plan place entry.
 
 ## Places check-status
 
@@ -166,5 +190,7 @@ NEVER write order- or sequence-dependent content. It goes stale the instant the 
 - List sections before mutating: `wlog sections list <tripKey>`.
 - Run `wlog places check-status <tripKey> --json` before a trip and after any reported closures, then use the result to propose replacements.
 - Never run live `enrich-add` against a populated production trip unless the user explicitly asks; it can create duplicates.
+- Native lodging must use `wlog lodging add`, which mirrors the verified `type=hotels` / `type=place` + `hotel:{...}` schema and validates after write. Use `add-place` only when a day-plan lodging place is desired instead of a hotel card.
+- After every mutation, re-fetch/validate the trip and confirm the plan renders.
 - Do not expose cookies, token contents, or Google API keys.
 - Use `node --test test/` and `node --test worker/test/` before shipping CLI changes.

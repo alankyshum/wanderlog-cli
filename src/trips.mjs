@@ -2,6 +2,7 @@ import { createClient } from './client.mjs';
 import { loadToken } from './token-store.mjs';
 import { normalizeTrip, normalizeTripSummary } from './models.mjs';
 import { AuthRequiredError, ApiError, ConfirmRequiredError, NotFoundError, UsageError } from './errors.mjs';
+import { assertTripPlanValid, validateTripPlanStructure } from './validation.mjs';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -21,6 +22,12 @@ export async function getTrip(opts = {}, tripKey) {
   const client = createClient(opts);
   const data = await client.get(`/api/tripPlans/${encodeURIComponent(tripKey)}?clientSchemaVersion=2`);
   return normalizeTrip(data);
+}
+
+export async function validateTrip(opts = {}, tripKey, validationOpts = {}) {
+  if (!tripKey) throw new Error('Usage: wlog trips validate <tripKey>');
+  const trip = await getTrip(opts, tripKey);
+  return validateTripPlanStructure(trip.raw, validationOpts);
 }
 
 export async function debugFetch(opts = {}, tripKey) {
@@ -90,7 +97,12 @@ export async function searchDestination(opts = {}, query) {
 export async function applyTripOps(opts = {}, tripKey, ops = []) {
   if (!tripKey) throw new UsageError('Missing tripKey');
   const client = createClient(opts);
-  return client.post(`/api/tripPlans/${encodeURIComponent(tripKey)}/applyOps`, { ops });
+  const result = await client.post(`/api/tripPlans/${encodeURIComponent(tripKey)}/applyOps`, { ops });
+  if (!opts.skipPostValidate) {
+    const data = await client.get(`/api/tripPlans/${encodeURIComponent(tripKey)}?clientSchemaVersion=2`);
+    assertTripPlanValid(data);
+  }
+  return result;
 }
 
 function unwrapTripList(data) {
