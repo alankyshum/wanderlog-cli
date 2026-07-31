@@ -1,196 +1,65 @@
-# Skill: wanderlog
+---
+name: wanderlog
+description: "Manage Wanderlog trips, itinerary sections, place blocks, lodging, or calendar feeds with wlog; triggers when those operations are requested."
+---
 
-Manage Wanderlog trips, sections, place blocks, and the stable calendar feed with the in-repo `wlog` CLI.
+# Goal
 
-## Installed CLI
+Manage Wanderlog trips, sections, place blocks, lodging, and the stable calendar feed with the in-repo `wlog` CLI. The consumer overview and canonical recipe are in [`README.md`](../../../README.md); this file is the detailed behavior contract.
 
-The chezmoi-managed install pulls this repo into `~/.local/share/wanderlog-cli-src/` and symlinks `~/.local/bin/wlog`.
+## Installed CLI and auth
 
-```bash
-wlog --version
-wlog auth status
-```
+The chezmoi-managed install uses `~/.local/share/wanderlog-cli-src/` and symlinks `~/.local/bin/wlog`. Auth is stored at `~/.config/wanderlog/token.json`; run `wlog auth login` again on 401/403 or exit code 3. Login launches an isolated Chrome/Chromium/Brave/Edge profile, waits for redirect away from `/login`, and captures `connect.sid` over CDP. `--timeout 10m` extends the default; `--verbose` diagnoses browser/CDP navigation. Fallback: `wlog auth import-cookie --cookie 'connect.sid=...'`.
 
-Auth is stored at `~/.config/wanderlog/token.json`; re-run `wlog auth login` on 401/403.
+Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documented 1Password source is the `wlog (wanderlog CLI) - google map places API` item in `Env-Secrets`, field `credential`. Never expose credentials.
 
-## Command quick reference
+## Command reference
 
 | Command | Purpose |
-| --- | --- |
-| `wlog auth login` | Browser-based login that stores `connect.sid`. |
-| `wlog trips list` / `wlog trips get <tripKey>` | Find and inspect trips. |
-| `wlog sections list <tripKey>` | Find section ids before mutations. |
-| `wlog places enrich-add <tripKey> <sectionId> --query "..."` | Add a Google-enriched place block. |
-| `wlog lodging add <tripKey> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD` | Add lodging as a native Wanderlog hotel card. |
-| `wlog lodging add-place <tripKey> <daySectionId> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD` | Fallback lodging as a normal day-plan place block. |
-| `wlog trips validate <tripKey> [--forbid-hotel-bookings]` | Validate trip sections/blocks after mutations. |
-| `wlog places check-status <tripKey> [--json] [--show-unknown]` | Sweep itinerary places, hotels, flights, and rental cars for non-operational Google business statuses and stale Google IDs. |
-| `wlog calendar subscribe <tripKey>` | Subscribe a trip to the stable calendar feed. |
+|---|---|
+| `auth login [--timeout <time>] [--verbose]` / `auth status` / `auth logout` | Browser login, validate, or remove the local token. |
+| `auth import-cookie --cookie 'connect.sid=...'` / `auth token-path` | Manual fallback or print the token path. |
+| `trips list` / `trips get <tripKey>` | Find and inspect trips. |
+| `trips create "<destination>" [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]` / `trips rename <tripKey> "<title>"` | Create from a geo-resolvable destination, then title it. |
+| `trips set-dates <tripKey> <startDate> <endDate>` / `trips validate <tripKey> [--json] [--forbid-hotel-bookings]` | Change dates or validate structure. |
+| `trips delete <tripKey> --confirm <tripKey>` | Delete a trip. |
+| `sections list <tripKey>` / `sections add <tripKey> "<heading>" [--mode dayPlan|textOnly] [--index <n>]` | Inspect or add sections. |
+| `sections rename <tripKey> <sectionId> "<heading>"` / `sections move <tripKey> <sectionId> <toIndex>` | Rename or reorder a section. |
+| `sections delete <tripKey> <sectionId> --confirm <sectionId>` | Delete a section. |
+| `places search "<query>"` / `places list <tripKey>` | Search or list normalized place blocks. |
+| `places add <tripKey> <sectionId> --name "..." --lat <lat> --lng <lng> --address "..." [--notes "..."] [--start HH:MM] [--end HH:MM] [--no-ai]` | Add a manual place only when Google cannot resolve it. |
+| `places update <tripKey> <sectionId> <blockIndex> [...]` / `places move <tripKey> <fromSectionId> <blockIndex> <toSectionId> [--to-index <n>]` | Update or move a place. |
+| `places delete <tripKey> <sectionId> <blockIndex> --confirm <blockIndex>` | Delete a place. |
+| `places enrich-add <tripKey> <sectionId> --query "..." [--duration "..."] [--cost "..."] [--start HH:MM] [--end HH:MM] [--notes "..."] [--no-ai] [--google-key <key>] [--with-photos]` | Google Places enrichment, insertion, and re-fetch verification. |
+| `places check-status <tripKey> [--json] [--show-unknown] [--google-key <key>]` | Audit places, hotels, airports, and rental cars. |
+| `lodging add <tripKey> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD [--room "..."] [--traveler-names "..."] [--confirmation-number "..."] [--section-id <id>] [--index <n>]` | Native hotel card. |
+| `lodging add-place <tripKey> <daySectionId> --query "..." --check-in YYYY-MM-DD --check-out YYYY-MM-DD [--notes "..."] [--cost "..."] [--with-photos]` | Normal day-plan lodging fallback. |
+| `calendar subscribe <tripKey> [--alias <name>] [--timezone <tz>]` / `unsubscribe <tripKey>` / `list` / `url` / `preview <tripKey> [--timezone <tz>]` / `refresh` | Manage the stable ICS feed; admin commands need `WANDERLOG_CALENDAR_ADMIN_TOKEN`. |
 
-## Browser auth login
+Use `wlog --help` for the complete flags. `trips create` takes a geo-resolvable destination, not a title; rename afterward. A 500 `TypeError: Cannot read properties of undefined (reading 'length')` from a title is a client-side input error, not a server outage.
 
-`wlog auth login` is browser-based and requires an installed compatible browser (Chrome first, then Chromium, Brave, or Microsoft Edge). It launches a temporary isolated browser profile, so it never touches the user's normal cookies/history or existing Chrome windows.
+## Date sections: operational rules
 
-Screenshot-style runbook:
+There is no date, `dayIndex`, or `startDate` on a day section. Its shape is `{id, heading, mode:"dayPlan", type:"normal", blocks:[]}`. The k-th dayPlan renders `tripPlan.startDate + k days`; headings are themes and renaming in place does not detach the date. Fresh trips include Notes, Places to visit, an untitled placeList, and one untitled dayPlan per trip day. Never delete those date sections. If their count is below the trip day count, repair the broken trip; do not paper over it with arbitrary new sections.
 
-```text
-$ wlog auth login
-Opening Chrome to https://wanderlog.com/login ...
-Waiting for you to sign in (timeout: 5 min) ...
+Canonical flow: `sections list` → rename existing dayPlan IDs in date order → `places enrich-add` into those same IDs. Add `--mode dayPlan` only for genuinely more days than the date range, usually after `trips set-dates`. `validate` checks structure/render safety, not date alignment: assert count equals day count and anchor verification to the original section IDs, never offsets computed after rearrangement.
 
-[Chrome opens Wanderlog login]
-1. Sign in normally in the browser window.
-2. Let Wanderlog redirect away from /login.
-3. The CLI auto-detects the redirect; do not copy/paste cookies or press Enter.
+The UI repair button appends one missing section per day through `POST /api/tripPlans/<key>/applyOps`, with `{"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}` and response `{"success":true}`. Afterward rename, move blocks, and delete only stray non-date themed sections. The CLI gap is tracked in README: proposed `trips validate --check-dates` and `sections ensure-days <tripKey>`.
 
-✓ Detected sign-in
-✓ Cookie captured (connect.sid, expires YYYY-MM-DD)
-✓ Wrote /Users/alanshum/.config/wanderlog/token.json
-```
+## Enrichment, lodging, and notes
 
-Then verify:
+`enrich-add` accepts `--duration`, `--cost`, `--start`, `--end`, `--notes`, `--no-ai`, `--google-key`, and `--with-photos`; duration is free-form and controls the Plan header. It maps Google Places details into the legacy place shape, inserts through `applyOps`, and verifies the target block count increased. Check each `formatted_address` against the requested branch/neighborhood and geographic cluster.
 
-```bash
-wlog auth status
-# authenticated: true
-# userId: <id if Wanderlog exposes it>
-```
+Native lodging is a `type:"place"` block in a `type:"hotels"`, `mode:"placeList"`, `heading:"Hotels and lodging"` section, with `hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`—never `type:"hotel"`.
 
-Flags:
+AI titles use `🤵‍♂️ <Name>`. Plain `places add` notes are only the supplied notes plus Wanderlog's trailing newline, or a blank newline when omitted. Enrichment notes prepend `**Plan**` only with duration, always `**What**`, and `**Cost**` only with cost, before user notes. The What line uses Google's primary display name and humanized type; use its English fallback when supplied, otherwise retain `<!-- TODO: add English name -->`. Keep notes durable and order-independent: identity, reason, signature thing, hours, fee, booking, or parking—not dates, times, driving, or “after lunch”.
 
-- `--timeout 10m` extends the default 5-minute sign-in window.
-- `--verbose` prints Chrome spawn, CDP connect, and frame navigation details.
+`check-status` lists `CLOSED_TEMPORARILY`, `CLOSED_PERMANENTLY`, `PLACE_ID_INVALID`, and `ERR_*` by default; `UNKNOWN` requires `--show-unknown`, while `OPERATIONAL` is summarized but not listed.
 
-Fallback/error handling:
+## Mutation, schemas, and safety
 
-- If no compatible browser is installed, the CLI says: `No compatible browser found. Install Google Chrome, Chromium, Brave, or Microsoft Edge, then run wlog auth login again.`
-- Manual fallback remains `wlog auth import-cookie --cookie 'connect.sid=...'`; do not remove or break it.
+Mutations fetch and normalize first, locate current array positions, build `applyOps`, then re-fetch. Paths are positional; invalid paths can return `success:true` without changing anything, and renderer-invalid structures can also be accepted. Validate and inspect the rendered plan after every write. Multi-ops are sequential; delete same-array indices descending. The JSON root is `tripPlan.itinerary`, not `itinerary`.
 
-## Places enrich-add
+Budget expense categories are `flights`, `lodging`, `carRental`, `transit`, `food`, `drinks`, `sightseeing`, `activities`, `shopping`, `gas`, `groceries`, and `other`; unknown values can crash the Budget widget. Link an expense `blockId` to the canonical booking block, not a day-plan copy. Native hotel, flight, rental-car, checklist, and day-plan event schemas are supported by the repo docs and must not be improvised with raw API writes.
 
-Add a Google-enriched place block without manually copying coordinates/address:
-
-```bash
-export GOOGLE_MAPS_API_KEY="$(op item get eryf3fv6lhqyjqiq7qqyrnjt7y --vault Env-Secrets --reveal --format json | jq -r '.fields[] | select(.label=="credential" or .purpose=="PASSWORD") | .value')"
-wlog places enrich-add <tripKey> <sectionId> \
-  --query "Handam Coastal Walk Aewol Jeju" \
-  --start 10:30 --end 12:30
-```
-
-Flags:
-
-- Required: `--query "NAME [Jeju]"`
-- Optional: `--duration <text>`, `--cost <text>`, `--start HH:MM`, `--end HH:MM`, `--notes "..."`, `--no-ai`, `--google-key <key>`
-- `--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
-- `--duration` is free-form (`30 min`, `1–1.5 h`, `2.5 h total`) and controls the optional Plan header. If omitted, the CLI omits the Plan line rather than fabricating one.
-
-Implementation notes:
-
-- Uses Google Places v1 Text Search + Place Details.
-- Maps v1 details into Wanderlog's legacy `place.{name, place_id, geometry.location, formatted_address, vicinity, rating, user_ratings_total, website, address_components, opening_hours, types, url, business_status, photo_urls}` shape.
-- Inserts through Wanderlog `/applyOps` via `src/client.mjs`, then re-fetches the trip and verifies the target section block count incremented by one.
-- `--with-photos` expands up to three Google Places v1 photo media URLs into `photo_urls`.
-
-## Lodging
-
-Use `wlog lodging add` for a native Wanderlog hotel card with check-in/check-out:
-
-```bash
-wlog lodging add <tripKey> \
-  --query "RIMBA by AYANA Bali" \
-  --check-in 2027-09-22 --check-out 2027-09-24 \
-  --room "25 guest Resort View Rooms" \
-  --traveler-names "25 guest Resort View Rooms"
-wlog trips validate <tripKey> --json
-```
-
-The native hotel-card schema is verified from plan `tvwkfegcyqnnlnyc`, lodging
-item `Atour Hotel Shanghai Bund Nanjing East Road`: a `type:"hotels"`,
-`mode:"placeList"`, `heading:"Hotels and lodging"`, `placeMarkerIcon:"bed"`
-section containing `type:"place"` blocks with full Google place details and
-`hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a
-`type:"hotel"` block. `wlog lodging add-place` remains available as a fallback
-normal day-plan place entry.
-
-## Places check-status
-
-Before a trip, and after any reported closures, agents should sweep for replacements:
-
-```bash
-wlog places check-status <tripKey> --json
-# Add --show-unknown for a full audit that includes places without Google businessStatus/business profiles.
-```
-
-This reports only actionable rows by default: `CLOSED_TEMPORARILY`, `CLOSED_PERMANENTLY`, `PLACE_ID_INVALID`, and `ERR_*`, including regular place blocks plus hotel, flight airport, and rental-car pickup/dropoff places. `OPERATIONAL` rows are never listed but are counted in the summary.
-
-`UNKNOWN` means Google returned 200 OK without `businessStatus` (often raw addresses, non-business attractions, rentals, or places with no business profile). These rows are hidden by default; pass `--show-unknown` when you need a full audit.
-
-`PLACE_ID_INVALID` means Google returned `NOT_FOUND` for a retired/migrated Place ID. Fix by re-enriching that block: re-search the place by name, then update/replace the stale block with the current Google place details.
-
-`--google-key` defaults to `$GOOGLE_MAPS_API_KEY`.
-
-## AI attribution format
-
-AI-created/touched place titles use:
-
-```text
-🤵‍♂️ <Name>
-```
-
-Plain `places add` notes are only the user's `--notes` payload plus Wanderlog's trailing newline, or `[{ insert: '\n' }]` when no notes are provided. `places enrich-add` auto-bakes the convention headers below before user notes.
-
-### Notes convention — write for durability, not sequence
-
-Place notes capture the place's **durable essence**: what it IS, why it earned its slot, and the **signature thing to look for** that creates a memory. Examples: "Udo peanut latte at Klein Blue", "tangerine hand-cream at Innisfree", "천년비자 Sacred Tree at Bijarim".
-
-For `wlog places enrich-add`, the CLI prepends these headers before user `--notes`:
-
-```text
-**Plan ~<duration>.** 
-**What:** <Google displayName> — <human Google type>.
-**Cost:** <cost>.
-<user --notes here>
-```
-
-- `**Plan**` is included only when `--duration <text>` is passed; no duration means no Plan line.
-- `**What**` is always included from Google Places enrichment. Non-Latin/non-Chinese display names get an English fallback in parentheses when Google provides one; otherwise the line includes `<!-- TODO: add English name -->`.
-- `**Cost:** <amount + payment method + notes>.` captures the single most useful budget number for the visit: entry fee, ticket price, parking, fuel top-up, `Free`, or a paid-elsewhere booking reference. Include card/cash and any cash-backup advice on the same durable line so it survives reordering.
-- `**Cost:** ₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup.`
-- `**Cost:** Booking ref ABC123 paid (US$135.45). No additional unless damage/loss.`
-
-Example:
-
-```bash
-wlog places enrich-add <tripKey> <sectionId> \
-  --query "협재해수욕장 Jeju" \
-  --duration "1 h" \
-  --cost "₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup" \
-  --notes "Wide white-sand beach with Biyangdo island views."
-# Notes become:
-# **Plan ~1 h.** 
-# **What:** 협재해수욕장 (Hyeopjae Beach) — tourist attraction.
-# **Cost:** ₩3,000 adult / ₩1,500 child entry + ₩3,000 flat parking. Card OK; ₩5–10k cash backup.
-# Wide white-sand beach with Biyangdo island views.
-```
-
-NEVER write order- or sequence-dependent content. It goes stale the instant the user rearranges blocks in the Wanderlog UI.
-
-- ❌ "Drive 25 min from Aewol"
-- ❌ "On the way back"
-- ❌ "After lunch"
-- ❌ "Next to O'sulloc"
-- ❌ specific dates / times / day names
-- ❌ "Replaces X" (history footnote; fine when truly durable, but skip if you can)
-- ✅ Karlam dossier hooks: "Karlam pick — sea + concrete brutalism"
-- ✅ Opening hours, entry fee, booking refs, parking info
-- ✅ Signature dish / view / artifact
-
-## Safety rules
-
-- List sections before mutating: `wlog sections list <tripKey>`.
-- Run `wlog places check-status <tripKey> --json` before a trip and after any reported closures, then use the result to propose replacements.
-- Never run live `enrich-add` against a populated production trip unless the user explicitly asks; it can create duplicates.
-- Native lodging must use `wlog lodging add`, which mirrors the verified `type=hotels` / `type=place` + `hotel:{...}` schema and validates after write. Use `add-place` only when a day-plan lodging place is desired instead of a hotel card.
-- After every mutation, re-fetch/validate the trip and confirm the plan renders.
-- Do not expose cookies, token contents, or Google API keys.
-- Use `node --test test/` and `node --test worker/test/` before shipping CLI changes.
+Before shipping CLI changes, run `node --test test/` and `node --test worker/test/`. See README for architecture, worker synchronization, maintainer workflow, and exit codes.

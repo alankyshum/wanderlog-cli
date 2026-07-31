@@ -1,144 +1,104 @@
-# Wanderlog CLI Maintainer Guide
+# Wanderlog CLI (`wlog`)
 
-This directory contains the in-repo `wlog` CLI for Wanderlog itinerary management and calendar subscription control. It is Node 22+ ESM and has no package-local runtime dependencies.
+`wlog` is the CLI for managing Wanderlog trips, itinerary sections, place blocks, lodging, and the stable calendar feed. It is Node 22+ ESM with no package-local runtime dependencies. This README is the consumer entry point and the source-of-truth overview for behavior; the repo skill at `.claude/skills/wanderlog/SKILL.md` is the detailed usage contract.
 
-## Architecture overview
+## Install and authenticate
 
-```text
-.claude/skills/wanderlog/
-├── bin/
-│   ├── wlog.mjs          # executable entrypoint
-│   └── args.mjs          # small flag/positional parser
-├── src/
-│   ├── commands.mjs      # command group router
-│   ├── auth.mjs          # login/status/logout/import-cookie
-│   ├── browser.mjs       # Chrome/CDP cookie extraction helpers
-│   ├── token-store.mjs   # ~/.config/wanderlog/token.json handling
-│   ├── client.mjs        # authenticated Wanderlog HTTP client
-│   ├── trips.mjs         # trip list/get/create/rename/date/delete
-│   ├── sections.mjs      # section CRUD/reorder helpers
-│   ├── places.mjs        # place search/add/enrich-add/update/delete/move
-│   ├── calendar.mjs      # Worker admin API + local preview
-│   ├── ics-generator.mjs # trip-to-ICS conversion
-│   ├── models.mjs        # normalization helpers
-│   ├── ai-attribution.mjs# visible AI prefix/hash utilities
-│   ├── bulk.mjs          # AI cleanup utility
-│   ├── errors.mjs        # typed errors and exit codes
-│   └── output.mjs        # human/JSON rendering
-└── test/                 # offline node:test suite and fixtures
-```
-
-## Auth design
-
-`wlog auth login` opens the user's installed Chrome/Chromium/Brave/Edge binary at `https://wanderlog.com/login` with a temporary isolated profile, enables Chrome DevTools Protocol (CDP) on a free local port, waits for top-level navigation away from `/login`, then captures the `connect.sid` cookie with `Network.getCookies`. It does not read or modify the user's main Chrome profile, cookies, history, or already-running browser session.
-
-Expected UX:
+The chezmoi-managed install places this repository at `~/.local/share/wanderlog-cli-src/`, symlinks `~/.local/bin/wlog`, and stores the token at `~/.config/wanderlog/token.json` (directory `0700`, file `0600`).
 
 ```bash
+wlog --version
 wlog auth login
-# Opening Chrome to https://wanderlog.com/login ...
-# Waiting for you to sign in (timeout: 5 min) ...
-# ✓ Detected sign-in
-# ✓ Cookie captured (connect.sid, expires YYYY-MM-DD)
-# ✓ Wrote ~/.config/wanderlog/token.json
+wlog auth status
 ```
 
-Useful flags:
+`auth login` opens Chrome, Chromium, Brave, or Edge with a temporary isolated profile, waits for sign-in, and captures only the `connect.sid` cookie over CDP. It does not touch the user's normal browser profile. Use `--timeout 10m` or `--verbose` as needed. If no browser is available, use `wlog auth import-cookie --cookie 'connect.sid=...'`. A 401/403 or exit code 3 means re-run `wlog auth login`.
 
-- `--timeout 10m` (or milliseconds / seconds like `300000`, `30s`) extends the 5 minute default.
-- `--verbose` logs Chrome spawn/CDP discovery/frame navigation details.
-- Manual fallback remains `wlog auth import-cookie --cookie 'connect.sid=...'`.
-
-If no compatible browser is found, install Google Chrome, Chromium, Brave, or Microsoft Edge and rerun `wlog auth login`.
-
-The token store writes a schema-versioned JSON object to `~/.config/wanderlog/token.json` with `0600` file permissions and a `0700` config directory. The CLI sends cookies as a `Cookie` header; it does not print cookie values in normal output.
-
-Auth failures from Wanderlog (`401`/`403`) are normalized to `AuthExpiredError` with exit code `3`, which tells users to run `wlog auth login` again.
-
-## Mutation model
-
-Mutations use fetch-before-mutate:
-
-1. Fetch and normalize the current trip.
-2. Locate the target section/place in the current raw itinerary.
-3. Build `applyOps` JSON operations against the current array path.
-4. Send the operation to Wanderlog.
-
-Destructive commands require an exact `--confirm <id>` value before any network mutation. Section/place updates preserve existing AI prefixes; non-prefixed renamed items receive the visible AI marker when touched through the AI path.
-
-AI-created/touched place names use `🤵‍♂️ <Name>` (single space, no brackets or hash in the title). `places enrich-add` auto-prepends durable `**Plan**` (only when `--duration` is provided), `**What**`, and `**Cost**` (only when `--cost` is provided) headers before user notes; plain `places add` notes contain only user-provided notes plus Wanderlog's trailing newline, or a blank newline when omitted.
-
-Notes should be durable, not sequential: capture what the place is, why it earned its slot, and the signature thing to look for (dish, view, artifact, booking/parking detail, or Karlam hook). Do not write route/order/date context like “after lunch”, “on the way back”, “next to X”, or “drive 25 min”; that goes stale when blocks move in Wanderlog.
-
-## Enriched Google Places add
-
-Use `places enrich-add` to search Google Places v1, fetch details, map them to Wanderlog's legacy place shape, insert the block with `applyOps`, then re-fetch the trip to verify the section block count increased by one:
+Google Places commands (`places enrich-add`, `lodging add`, and `places check-status`) require `GOOGLE_MAPS_API_KEY` or `--google-key`. The documented key is in 1Password, item `wlog (wanderlog CLI) - google map places API`, vault `Env-Secrets`, field `credential`:
 
 ```bash
-export GOOGLE_MAPS_API_KEY="$(op item get eryf3fv6lhqyjqiq7qqyrnjt7y --vault Env-Secrets --reveal --format json | jq -r '.fields[] | select(.label=="credential" or .purpose=="PASSWORD") | .value')"
-wlog places enrich-add lpwekdgnmmcqjkjo 21652664 \
-  --query "Handam Coastal Walk Aewol Jeju" \
-  --duration "1 h" \
-  --start 10:30 --end 12:30
+export GOOGLE_MAPS_API_KEY="$(op read 'op://Env-Secrets/26e6zxdbj5ndyk6ay2blqk7r6i/credential')" <!-- skill-lint: allow -->
 ```
 
-Flags: `--query` is required. Optional flags are `--duration <text>` (free-form like `30 min`, `1–1.5 h`, or `2.5 h total`), `--cost <text>`, `--start HH:MM`, `--end HH:MM`, `--no-ai`, `--notes "..."`, `--google-key <key>` (defaults to `$GOOGLE_MAPS_API_KEY`), and `--with-photos`.
+Never print or write the key, token, or cookie.
 
-`enrich-add` writes convention headers before user `--notes` content:
+## Canonical one-shot itinerary recipe
+
+For “create an itinerary for <trip>”, use the destination and title as separate concepts. `trips create` resolves argument 1 through geo-autocomplete; it does **not** take a title.
+
+```bash
+wlog trips list
+wlog trips create "<resolvable destination>" --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+wlog trips rename <tripKey> "<human-readable title>"
+wlog sections list <tripKey>
+# Rename existing untitled dayPlan sections in date order; do not add replacements.
+wlog sections rename <tripKey> <daySectionId1> "<day 1 theme>"
+wlog sections rename <tripKey> <daySectionId2> "<day 2 theme>"
+# Add each POI to the same existing section id as its day.
+wlog places enrich-add <tripKey> <daySectionId> --query "<place>" --notes "<durable essence>"
+wlog trips validate <tripKey> --json
+wlog trips get <tripKey>
+```
+
+Verify every enriched result's `formatted_address` against the requested neighborhood or branch and the day's geographic cluster. Flag a multi-branch chain or conflicting address instead of writing a contradictory note.
+
+## Date-section model (canonical)
+
+Sections have **no date field**. A `dayPlan` section has exactly the relevant shape `{id, heading, mode:"dayPlan", type:"normal", blocks:[]}`; `date`, `dayIndex`, and `startDate` are absent. Dates are purely positional: the k-th `dayPlan` section renders as `tripPlan.startDate + k days`. Renaming a dayPlan heading does not detach its date: the UI can show a date header with the theme as a subheading, and the sidebar can show `Mon 3/8: Drive Down the 5`.
+
+A fresh trip ships with `Notes` (`textOnly`), `Places to visit` (`placeList`), an untitled `placeList`, and one untitled empty `dayPlan` section per trip day. Those untitled dayPlan sections are the dates. Never delete them. If `count(dayPlan sections) < trip day count`, the trip is broken and Wanderlog shows “Your itinerary is missing sections for the dates of your trip.”
+
+The safe population flow is `sections list` → `sections rename <existing sectionId> "<Theme>"` in date order → `places enrich-add` into those same IDs. Use `sections add --mode dayPlan` only when the trip genuinely needs more days than its date range; usually the correct fix is `trips set-dates`. Keep unused date slots empty rather than adding filler.
+
+`wlog trips validate` may return `valid:true` for broken date layouts; it does not check date alignment. Assert that the dayPlan count equals the trip day count and verify rendered dates against the **original date-bound section IDs**. Never compute offsets over sections you just rearranged—that is circular.
+
+### Repairing an already-broken trip
+
+The UI's “Create the sections for me” button is client-side React behavior that auto-saves via `POST /api/tripPlans/<key>/applyOps`. It appends one operation per missing day, with this value:
+
+```json
+{"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}
+```
+
+The response is `{"success":true}`. After regeneration, rename the new sections in date order, move blocks into them with `places move`, then delete only stray non-date themed sections. Never delete the original date-bound sections. The CLI currently cannot detect or regenerate missing date sections. Durable TODO: implement `wlog trips validate --check-dates` (dayPlan count versus trip day count and anchored alignment reporting) and `wlog sections ensure-days <tripKey>` (append exactly the payload above, do not reorder/delete existing sections, re-fetch and verify).
+
+## Safety and durable notes
+
+- List trips and sections before mutation; fetch and validate after every write. `applyOps` can return `success:true` for an invalid/no-op or renderer-breaking write.
+- Destructive commands require the exact `--confirm <id>` value. Never drive the browser or call raw APIs as a shortcut around the CLI workflow.
+- Prefer Google-enriched POIs. Check `formatted_address`, especially for multi-branch chains, before accepting a result.
+- AI-created/touched place titles use `🤵‍♂️ <Name>`. `enrich-add` prepends `**Plan**` only with `--duration`, always adds `**What**`, and adds `**Cost**` only with `--cost`, before user notes. Notes should describe durable essence, not “after lunch”, “on the way back”, dates, times, or driving order.
+- Native lodging uses `lodging add`: a `type:"hotels"`, `mode:"placeList"`, `heading:"Hotels and lodging"` section with `type:"place"` blocks and `hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a `type:"hotel"` block; `lodging add-place` is the day-plan fallback.
+- `check-status` reports actionable closed/invalid/error rows by default; `UNKNOWN` rows are hidden unless `--show-unknown`, and `OPERATIONAL` rows are counted but not listed.
+
+See `.claude/skills/wanderlog/SKILL.md` for the full command table, flags, auth runbook, schemas, notes convention, check-status semantics, applyOps gotchas, and troubleshooting signatures.
+
+## Maintainer guide
+
+### Architecture
 
 ```text
-**Plan ~1 h.** 
-**What:** Handam Coastal Walk — tourist attraction.
-**Cost:** ₩3,000 adult entry. Card OK; carry cash backup.
-<user --notes here>
+.claude/skills/wanderlog/{bin/wlog.mjs,bin/args.mjs}
+src/{commands.mjs,auth.mjs,browser.mjs,token-store.mjs,client.mjs,trips.mjs,
+sections.mjs,places.mjs,calendar.mjs,ics-generator.mjs,models.mjs,
+ai-attribution.mjs,bulk.mjs,errors.mjs,output.mjs}
+test/                         # offline node:test suite and fixtures
 ```
 
-The Plan line is emitted only when `--duration` is provided; it is omitted rather than fabricated otherwise. The What line always uses Google's primary display name and a humanized Google place type. The Cost line is emitted only when `--cost` is provided and should capture the durable amount, payment method, and any backup advice.
+`client.mjs` owns the authenticated HTTP client; command modules are network-isolated behind it. The Worker lives at `public/workers/wanderlog-calendar/` and serves `https://calendar.alanshum.org/wanderlog`. It vendors copies of `src/ics-generator.mjs` and `src/models.mjs`; keep those copies synchronized with `worker/src/` when ICS behavior changes. `calendar.mjs` uses the Worker admin API for subscriptions, refresh, and previews.
 
-## Where to add new commands
+### Where to add commands
 
-1. Add flag parsing in `bin/args.mjs` if the command needs new flags.
-2. Add routing in `src/commands.mjs` under the appropriate command group.
-3. Implement behavior in the relevant module (`trips.mjs`, `sections.mjs`, `places.mjs`, `calendar.mjs`, or a new focused module).
-4. Use typed errors from `src/errors.mjs` for predictable exit codes.
-5. Add offline tests under `test/` with sanitized fixtures.
+Add flags in `bin/args.mjs`, route in `src/commands.mjs`, implement in the focused module, use typed errors from `src/errors.mjs`, and add offline sanitized fixtures/tests under `test/`. Mock `globalThis.fetch`; do not call live services. The date TODO above belongs here as the durable implementation record.
 
-Keep command modules network-isolated behind `src/client.mjs`; tests should mock `globalThis.fetch` instead of calling live services.
-
-## Test instructions
-
-Run CLI tests from the repository root:
+### Tests and migration relationship
 
 ```bash
 node --test test/
-```
-
-Run Worker tests separately:
-
-```bash
 node --test worker/test/
 ```
 
-The test suite uses only `node:test` and `node:assert/strict`. Fixtures must not include real cookies, personal data, or real trip IDs except the documented Jeju sandbox ID in docs/tests that explicitly mention it.
-
-## Migration note from external Claude skill
-
-The older external skill at `.claude/skills/travel/wanderlog/` used a separate script and `.env` cookie export flow. This in-repo CLI replaces that workflow with `wlog auth login`, typed modules, a secure token store, AI attribution helpers, and calendar subscription commands. Treat the external skill as reference only; do not modify it when maintaining this CLI.
-
-## Relationship to the Worker
-
-The Cloudflare Worker lives at `public/workers/wanderlog-calendar/` and serves the stable feed:
-
-```text
-https://calendar.alanshum.org/wanderlog
-```
-
-`src/calendar.mjs` calls the Worker admin API to subscribe/unsubscribe trips, list subscriptions, refresh the feed, and preview ICS. Worker deploys cannot import files outside their directory, so the Worker vendors copies of the model and ICS logic. Keep these in sync when changing ICS behavior:
-
-- `src/ics-generator.mjs`
-- `src/models.mjs`
-- `worker/src/ics-generator.mjs`
-- `worker/src/models.mjs`
+Fixtures must not contain real cookies, personal data, or real trip IDs except the explicitly documented Jeju sandbox ID. The external vault skill at `/Users/alanshum/Documents/dotfiles/external/obsidian-notes/.claude/skills/travel/wanderlog/` is now a thin trip-planning consumer of this README and the in-repo skill; update the CLI docs here first when behavior changes, then update only its judgment/workflow guidance as needed. It is not an independent mechanics contract.
 
 ## Exit codes
 
