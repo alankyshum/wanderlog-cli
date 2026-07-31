@@ -1,6 +1,6 @@
-# Wanderlog CLI (`wlog`)
+# Wanderlog CLI
 
-`wlog` is the CLI for managing Wanderlog trips, itinerary sections, place blocks, lodging, and the stable calendar feed. It is Node 22+ ESM with no package-local runtime dependencies. This README is the consumer entry point and the source-of-truth overview for behavior; the repo skill at `.claude/skills/wanderlog/SKILL.md` is the detailed usage contract.
+wlog manages Wanderlog trips, sections, and places, generates ICS calendars, and controls calendar subscriptions through a Worker admin API. It authenticates by capturing a cookie through Chrome/CDP in a temporary isolated profile that never touches the user's main Chrome profile; it runs on Node 22+ ESM with no package-local runtime dependencies.
 
 ## Install and authenticate
 
