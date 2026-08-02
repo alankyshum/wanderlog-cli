@@ -2,8 +2,8 @@ import { getTrip, listTrips } from './trips.mjs';
 import { generateIcs } from './ics-generator.mjs';
 import { NotFoundError, UsageError } from './errors.mjs';
 
-const PUBLIC_CALENDAR_URL = 'https://calendar.alanshum.org/wanderlog';
-const DEFAULT_BASE_URL = 'https://calendar.alanshum.org';
+const PUBLIC_CALENDAR_URL = 'https://calendar.alanshum.dev/wanderlog';
+const DEFAULT_BASE_URL = 'https://calendar.alanshum.dev';
 
 export async function subscribe(opts = {}, { tripKey, title = null, alias = null, timezone = null } = {}) {
   if (!tripKey) throw new Error('Usage: wlog calendar subscribe <tripKey> [--alias <name>] [--timezone <tz>]');

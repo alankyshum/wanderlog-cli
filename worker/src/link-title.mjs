@@ -73,7 +73,7 @@ async function resolveTitle(env, url) {
       redirect: 'follow',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        'User-Agent': 'wanderlog-calendar/1.0 (+https://calendar.alanshum.org)',
+        'User-Agent': 'wanderlog-calendar/1.0 (+https://calendar.alanshum.dev)',
         Accept: 'text/html,application/xhtml+xml',
       },
     });

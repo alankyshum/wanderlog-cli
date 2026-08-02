@@ -2,8 +2,8 @@
 
 Serves a stable private-owner ICS feed for subscribed Wanderlog trips at:
 
-- `https://calendar.alanshum.org/wanderlog`
-- `https://calendar.alanshum.org/wanderlog.ics`
+- `https://calendar.alanshum.dev/wanderlog`
+- `https://calendar.alanshum.dev/wanderlog.ics`
 
 The public URL never includes a `planId`; subscriptions are managed through the admin API and stored in Cloudflare KV.
 
@@ -59,7 +59,7 @@ WANDERLOG_CALENDAR_ADMIN_TOKEN=... \
 Then subscribe calendar apps to:
 
 ```text
-https://calendar.alanshum.org/wanderlog
+https://calendar.alanshum.dev/wanderlog
 ```
 
 ## Calendar app setup

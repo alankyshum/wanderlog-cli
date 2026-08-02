@@ -24,9 +24,32 @@ test('generateIcs returns a VCALENDAR and derives summary from the item note', (
   assert.match(unfold(ics), /SUMMARY:Breakfast and planning notes/);
 });
 
+test('normalizeTrip preserves a dated section so generateIcs emits its timed block', () => {
+  const trip = normalizeTrip({
+    tripPlan: {
+      key: 'DATED-TRIP',
+      startDate: '2026-08-01',
+      sections: [{
+        id: 'dated-section',
+        heading: 'Day 3',
+        date: '2026-08-03',
+        blocks: [{
+          id: 'dated-block',
+          place: { name: 'Dated Place' },
+          startTime: '09:00',
+          endTime: '10:00',
+        }],
+      }],
+    },
+  });
+  const ics = generateIcs({ trips: [trip] });
+  assert.match(ics, /BEGIN:VEVENT/);
+  assert.match(unfold(ics), /DTSTART(?:;TZID=[^:]+)?:20260803T090000/);
+});
+
 test('UID uses stable wlog trip-section-block format', () => {
   const ics = generateIcs({ trips: [baseTrip()] });
-  assert.match(unfold(ics), /UID:wlog-TESTTRIP1-sec-day-1-block-001@calendar\.alanshum\.org/);
+  assert.match(unfold(ics), /UID:wlog-TESTTRIP1-sec-day-1-block-001@wanderlog-calendar/);
 });
 
 test('ICS uses CRLF line endings only', () => {

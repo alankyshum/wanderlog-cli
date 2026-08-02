@@ -34,6 +34,7 @@ export function normalizeSection(raw = {}) {
   return {
     id: raw.id ?? null,
     heading: raw.heading ?? raw.title ?? raw.name ?? null,
+    date: raw.date ?? raw.startDate ?? raw.start_date ?? null,
     mode: raw.mode ?? null,
     type: raw.type ?? null,
     blockCount: blocks.length,

@@ -4,8 +4,8 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[routes]]
-pattern = "calendar.alanshum.org/wanderlog*"
-zone_name = "alanshum.org"
+pattern = "calendar.alanshum.dev/wanderlog*"
+zone_name = "alanshum.dev"
 
 [[kv_namespaces]]
 binding = "WANDERLOG_KV"

@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import fixture from './fixtures/trip-plan.json' with { type: 'json' };
 import { extractAiHash, normalizePlaceBlock, normalizeSection, normalizeTrip, stripAiPrefix } from '../src/models.mjs';
@@ -20,6 +23,51 @@ test('normalizeSection extracts id, heading, mode, and block count', () => {
   assert.equal(section.mode, 'dayPlan');
   assert.equal(section.blockCount, 2);
   assert.equal(section.blocks.length, 2);
+});
+
+test('normalizeSection preserves explicit dates and falls back to legacy date fields', () => {
+  assert.equal(normalizeSection({ id: 1, heading: 'Day 1', date: '2026-08-03', blocks: [] }).date, '2026-08-03');
+  assert.equal(normalizeSection({ startDate: '2026-08-04', blocks: [] }).date, '2026-08-04');
+  assert.equal(normalizeSection({ start_date: '2026-08-05', blocks: [] }).date, '2026-08-05');
+  assert.equal(normalizeSection({ blocks: [] }).date, null);
+});
+
+function extractFunction(source, name) {
+  const start = source.indexOf(`export function ${name}`);
+  assert.notEqual(start, -1, `missing ${name}`);
+  const bodyStart = source.indexOf(') {', start) + 2;
+  assert.notEqual(bodyStart, 1, `missing body for ${name}`);
+  let depth = 0;
+  let inString = null;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const character = source[index];
+    const previous = source[index - 1];
+    if (inString) {
+      if (character === inString && previous !== '\\') inString = null;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') {
+      inString = character;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}' && --depth === 0) {
+      return source.slice(start, index + 1);
+    }
+  }
+  assert.fail(`unterminated ${name}`);
+}
+
+function normalizedFunction(source, name) {
+  return extractFunction(source, name).replace(/\s+/g, ' ').trim();
+}
+
+test('vendored model normalizers stay synchronized', () => {
+  const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const cli = fs.readFileSync(path.join(root, 'src/models.mjs'), 'utf8');
+  const worker = fs.readFileSync(path.join(root, 'worker/src/models.mjs'), 'utf8');
+  for (const name of ['normalizeSection', 'normalizePlaceBlock', 'normalizeTripSummary']) {
+    assert.equal(normalizedFunction(cli, name), normalizedFunction(worker, name), `${name} drifted between src and worker/src`);
+  }
 });
 
 test('normalizePlaceBlock pulls place fields and block index', () => {

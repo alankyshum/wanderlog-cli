@@ -1,5 +1,9 @@
 const PRODID = '-//alanshum//wanderlog-calendar//EN';
-const CALENDAR_HOST = 'calendar.alanshum.org';
+// Opaque, fixed namespace for iCalendar UIDs. RFC 5545 only requires global
+// uniqueness — the right-hand side is NOT a resolvable host and MUST NOT be
+// tied to the serving domain. Changing this value re-keys every event and
+// causes duplicates in existing subscribers' calendars. Do not change it.
+const UID_NAMESPACE = 'wanderlog-calendar';
 const TEXT_ENCODER = new TextEncoder();
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^(\d{2}):(\d{2})$/;
@@ -211,7 +215,7 @@ function placeBlockToCandidate({ block = {}, blockIndex, sectionId, tripKey }) {
     startMoment: null,
     endMoment: null,
     event: {
-      uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${CALENDAR_HOST}`,
+      uid: `wlog-${safeUidPart(tripKey)}-${safeUidPart(sectionId)}-${safeUidPart(blockId)}@${UID_NAMESPACE}`,
       summary: titleOverride || deriveSummary(name, notes),
       location: block.address ?? block.formatted_address ?? block.place?.formatted_address ?? '',
       lat: block.lat ?? block.place?.geometry?.location?.lat ?? block.place?.location?.lat,
