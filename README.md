@@ -2,6 +2,9 @@
 
 wlog manages Wanderlog trips, sections, and places, generates ICS calendars, and controls calendar subscriptions through a Worker admin API. It authenticates by capturing a cookie through Chrome/CDP in a temporary isolated profile that never touches the user's main Chrome profile; it runs on Node 22+ ESM with no package-local runtime dependencies.
 
+<img width="1344" height="752" alt="file-e3b73864587e96c48c6b062cf16064ae" src="https://github.com/user-attachments/assets/222feadf-5454-4c40-8539-4df68b0b436a" />
+
+
 ## Install and authenticate
 
 The chezmoi-managed install places this repository at `~/.local/share/wanderlog-cli-src/`, symlinks `~/.local/bin/wlog`, and stores the token at `~/.config/wanderlog/token.json` (directory `0700`, file `0600`).
