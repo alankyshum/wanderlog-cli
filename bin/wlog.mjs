@@ -71,7 +71,7 @@ USAGE
   wlog <command> [subcommand] [options]
 
 COMMANDS
-  auth          Authentication (login, status, logout)
+  auth          Authentication (recover, login, status, logout)
   trips         Trip management (list, create, get, rename, set-dates, delete)
   sections      Itinerary sections (list, add, rename, delete, move)
   places        Place management (search, add, enrich-add, check-status, update, delete, move)

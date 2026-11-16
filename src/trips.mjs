@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { createClient } from './client.mjs';
 import { loadToken } from './token-store.mjs';
 import { normalizeTrip, normalizeTripSummary } from './models.mjs';
@@ -65,7 +66,7 @@ export async function renameTrip(opts = {}, tripKey, newTitle) {
   return { tripKey, title: newTitle };
 }
 
-export async function setDates(opts = {}, tripKey, startDate, endDate) {
+export async function setDates(opts = {}, tripKey, startDate, endDate, { alignDaySections = false } = {}) {
   if (!tripKey || !startDate || !endDate) throw new UsageError('Usage: wlog trips set-dates <tripKey> <startDate> <endDate>');
   validateDate(startDate, 'startDate');
   validateDate(endDate, 'endDate');
@@ -75,7 +76,53 @@ export async function setDates(opts = {}, tripKey, startDate, endDate) {
     { p: ['startDate'], oi: startDate, od: current.startDate ?? null },
     { p: ['endDate'], oi: endDate, od: current.endDate ?? null },
   ];
+  let expectedDays;
+  if (alignDaySections) {
+    const dateMs = value => {
+      const time = Date.parse(`${value}T00:00:00Z`);
+      if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== value) throw new UsageError('Dates must be valid calendar dates');
+      return time;
+    };
+    const start = dateMs(startDate);
+    const end = dateMs(endDate);
+    const count = (end - start) / 86400000 + 1;
+    if (!Number.isInteger(count) || count < 1 || count > 366) throw new UsageError('Date range must be 1–366 days');
+    const raw = unwrapTripPayload(current.raw);
+    const sections = raw.itinerary?.sections;
+    if (!Array.isArray(sections)) throw new UsageError('Trip sections unavailable');
+    const daySections = sections.map((section, index) => ({ section, index })).filter(x => x.section.mode === 'dayPlan');
+    if (daySections.length > count) throw new UsageError('Refusing to remove existing day sections');
+    if (daySections.some(x => x.section.type !== 'normal' || !Array.isArray(x.section.blocks))) throw new UsageError('Invalid day section');
+    const oldStart = current.startDate ? dateMs(current.startDate) : null;
+    if (daySections.some((x, i) => x.section.date != null && (!oldStart || x.section.date !== new Date(oldStart + i * 86400000).toISOString().slice(0, 10)))) {
+      throw new UsageError('Existing day dates do not align with the original start date');
+    }
+    const ids = new Set(sections.flatMap(s => [String(s.id), ...(s.blocks || []).map(b => String(b.id))]));
+    expectedDays = [];
+    const dateFor = i => new Date(start + i * 86400000).toISOString().slice(0, 10);
+    for (let i = 0; i < daySections.length; i++) {
+      const { section, index } = daySections[i];
+      expectedDays.push({ id: String(section.id), date: dateFor(i) });
+      if (section.date != null) ops.push({ p: ['itinerary', 'sections', index, 'date'], oi: dateFor(i), od: section.date });
+    }
+    let insertIndex = daySections.length ? daySections.at(-1).index + 1 : sections.length;
+    for (let i = daySections.length; i < count; i++) {
+      let id;
+      do id = randomInt(100000000, 999999999); while (ids.has(String(id)));
+      ids.add(String(id));
+      const section = { id, heading: '', mode: 'dayPlan', type: 'normal', blocks: [], date: dateFor(i), text: { ops: [{ insert: '\n' }] }, placeMarkerColor: '#3f52e3', placeMarkerIcon: 'map-marker' };
+      expectedDays.push({ id: String(id), date: dateFor(i) });
+      ops.push({ p: ['itinerary', 'sections', insertIndex++], li: section });
+    }
+  }
   await applyTripOps(opts, tripKey, ops);
+  if (expectedDays) {
+    const after = await getTrip(opts, tripKey);
+    const days = unwrapTripPayload(after.raw).itinerary.sections.filter(s => s.mode === 'dayPlan');
+    if (after.startDate !== startDate || after.endDate !== endDate || days.length !== expectedDays.length || days.some((s, i) => String(s.id) !== expectedDays[i].id || (s.date != null && s.date !== expectedDays[i].date))) {
+      throw new ApiError('Post-write date-section verification failed; inspect the trip before further edits');
+    }
+  }
   return { ...normalizeTripSummary(current), startDate, endDate };
 }
 

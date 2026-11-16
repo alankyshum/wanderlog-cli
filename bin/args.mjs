@@ -2,7 +2,7 @@ import { UsageError } from '../src/errors.mjs';
 
 const BOOL_FLAGS = new Set([
   'help', 'version', 'json', 'verbose', 'quiet', 'no-open',
-  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown', 'forbid-hotel-bookings',
+  'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown', 'forbid-hotel-bookings', 'align-day-sections',
 ]);
 
 const VALUE_FLAGS = new Set([
@@ -25,6 +25,7 @@ const OPTION_KEYS = {
   'with-photos': 'withPhotos',
   'show-unknown': 'showUnknown',
   'forbid-hotel-bookings': 'forbidHotelBookings',
+  'align-day-sections': 'alignDaySections',
   'start-date': 'startDate',
   'end-date': 'endDate',
   'check-in': 'checkIn',

@@ -37,10 +37,14 @@ async function dispatchAuth(opts, subcommand, args) {
       return ok(await auth.logout(opts));
     case 'import-cookie':
       return ok(await auth.importCookie(opts));
+    case 'recover': {
+      const recovery = await import('./recover.mjs');
+      return ok(await recovery.recover(opts, args[0]));
+    }
     case 'token-path':
       return ok(await auth.tokenPath(opts));
     default:
-      throw new UsageError('Usage: wlog auth <login|status|logout|import-cookie|token-path>');
+      throw new UsageError('Usage: wlog auth <login|status|logout|import-cookie|recover|token-path>');
   }
 }
 
@@ -60,7 +64,7 @@ async function dispatchTrips(opts, subcommand, args) {
       return ok(await trips.renameTrip(opts, args[0], joinArgs(args.slice(1))));
     case 'set-dates':
       await requireAuth(opts);
-      return ok(await trips.setDates(opts, args[0], args[1], args[2]));
+      return ok(await trips.setDates(opts, args[0], args[1], args[2], { alignDaySections: Boolean(opts.alignDaySections) }));
     case 'validate':
       await requireAuth(opts);
       return ok(await trips.validateTrip(opts, args[0], { forbidHotelBookings: Boolean(opts.forbidHotelBookings) }));
@@ -107,6 +111,8 @@ async function dispatchLodging(opts, subcommand, args) {
         googleKey: opts.googleKey,
         withPhotos: Boolean(opts.withPhotos),
       }));
+    case 'repair-unmapped':
+      return ok(await lodging.repairUnmapped(opts, args[0], { confirm: opts.confirm, index: opts.index, name: opts.name, query: opts.query, googleKey: opts.googleKey }));
     default:
       throw new UsageError('Usage: wlog lodging <add|add-place> <tripKey> [sectionId] --query <hotel> --check-in YYYY-MM-DD --check-out YYYY-MM-DD');
   }
@@ -123,12 +129,14 @@ async function dispatchSections(opts, subcommand, args) {
       return ok(await sections.addSection(opts, args[0], joinArgs(args.slice(1)), { mode: opts.mode, index: opts.index }));
     case 'rename':
       return ok(await sections.renameSection(opts, args[0], args[1], joinArgs(args.slice(2))));
+    case 'add-note':
+      return ok(await sections.addNote(opts, args[0], args[1], opts.notes));
     case 'delete':
       return ok(await sections.deleteSection(opts, args[0], args[1], { confirm: opts.confirm }));
     case 'move':
       return ok(await sections.moveSection(opts, args[0], args[1], args[2]));
     default:
-      throw new UsageError('Usage: wlog sections <list|add|rename|delete|move>');
+      throw new UsageError('Usage: wlog sections <list|add|rename|add-note|delete|move>');
   }
 }
 
@@ -241,7 +249,14 @@ function joinArgs(args) {
 
 function helpFor(command) {
   const help = {
-    auth: `Usage: wlog auth <login|status|logout|import-cookie|token-path> [options]
+    auth: `Usage: wlog auth <login|status|logout|import-cookie|recover|token-path> [options]
+
+AUTH RECOVER
+  wlog auth recover <tripKey>
+
+  Reuse the verified signed-in personal browser, capture connect.sid in memory,
+  validate the selected account and fetch the specified trip. See the runbook
+  for the guarded signed-out Google SSO path and its current limitations.
 
 AUTH LOGIN
   wlog auth login [--timeout 5m] [--verbose]
@@ -254,7 +269,7 @@ FALLBACK
   wlog auth import-cookie --cookie 'connect.sid=...'
 `,
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|validate|delete> [tripKey] [options]',
-    sections: 'Usage: wlog sections <list|add|rename|delete|move> [tripKey] [options]',
+    sections: 'Usage: wlog sections <list|add|rename|add-note|delete|move> [tripKey] [options]\n  add-note <tripKey> <sectionId> --notes <text>',
     places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
 
 ENRICH ADD
@@ -281,7 +296,7 @@ Adds a native Wanderlog hotel card in a type=hotels / mode=placeList section,
 using the reference-derived schema: a type=place block with Google place details
 and hotel.{checkIn,checkOut,confirmationNumber,travelerNames}.
 
-Options: --query, --check-in, --check-out, --room, --traveler-names,
+Options: --query, --name, --check-in, --check-out, --room, --traveler-names,
 --confirmation-number, --section-id, --index, --notes, --no-ai, --google-key.
 
 Fallback: wlog lodging add-place <tripKey> <daySectionId> adds lodging as a

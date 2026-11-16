@@ -9,7 +9,7 @@ Manage Wanderlog trips, sections, place blocks, lodging, and the stable calendar
 
 ## Installed CLI and auth
 
-The chezmoi-managed install uses `~/.local/share/wanderlog-cli-src/` and symlinks `~/.local/bin/wlog`. Auth is stored at `~/.config/wanderlog/token.json`; run `wlog auth login` again on 401/403 or exit code 3. Login launches an isolated Chrome/Chromium/Brave/Edge profile, waits for redirect away from `/login`, and captures `connect.sid` over CDP. `--timeout 10m` extends the default; `--verbose` diagnoses browser/CDP navigation. Fallback: `wlog auth import-cookie --cookie 'connect.sid=...'`.
+The chezmoi-managed install uses `~/.local/share/wanderlog-cli-src/` and symlinks `~/.local/bin/wlog`. On no-token, 401/403 or exit code 3, recover autonomously using [`reference/auth-recovery.md`](reference/auth-recovery.md), then retry the original operation. `wlog auth recover <tripKey>` handles the verified signed-in browser path and attempts Google SSO; the runbook records the signed-out limitations and fail-closed rules.
 
 Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documented 1Password source is the `wlog (wanderlog CLI) - google map places API` item in `Env-Secrets`, field `credential`. Never expose credentials.
 
@@ -17,14 +17,15 @@ Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documen
 
 | Command | Purpose |
 |---|---|
-| `auth login [--timeout <time>] [--verbose]` / `auth status` / `auth logout` | Browser login, validate, or remove the local token. |
-| `auth import-cookie --cookie 'connect.sid=...'` / `auth token-path` | Manual fallback or print the token path. |
+| `auth recover <tripKey>` / `auth login [--timeout <time>] [--verbose]` / `auth status` / `auth logout` | Recover from a signed-in personal browser, isolated browser login, validate, or remove the local token. |
+| `auth import-cookie` / `auth token-path` | Legacy manual import or print the token path; use `auth recover` to avoid exposing a cookie in argv. |
 | `trips list` / `trips get <tripKey>` | Find and inspect trips. |
 | `trips create "<destination>" [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]` / `trips rename <tripKey> "<title>"` | Create from a geo-resolvable destination, then title it. |
 | `trips set-dates <tripKey> <startDate> <endDate>` / `trips validate <tripKey> [--json] [--forbid-hotel-bookings]` | Change dates or validate structure. |
 | `trips delete <tripKey> --confirm <tripKey>` | Delete a trip. |
-| `sections list <tripKey>` / `sections add <tripKey> "<heading>" [--mode dayPlan|textOnly] [--index <n>]` | Inspect or add sections. |
+| `sections list <tripKey>` / `sections add <tripKey> "<heading>" [--mode dayPlan|placeList|textOnly] [--index <n>]` | Inspect or add sections. |
 | `sections rename <tripKey> <sectionId> "<heading>"` / `sections move <tripKey> <sectionId> <toIndex>` | Rename or reorder a section. |
+| `sections add-note <tripKey> <sectionId> --notes "..."` | Add a verified note to a normal day or list section. |
 | `sections delete <tripKey> <sectionId> --confirm <sectionId>` | Delete a section. |
 | `places search "<query>"` / `places list <tripKey>` | Search or list normalized place blocks. |
 | `places add <tripKey> <sectionId> --name "..." --lat <lat> --lng <lng> --address "..." [--notes "..."] [--start HH:MM] [--end HH:MM] [--no-ai]` | Add a manual place only when Google cannot resolve it. |
@@ -40,9 +41,9 @@ Use `wlog --help` for the complete flags. `trips create` takes a geo-resolvable 
 
 ## Date sections: operational rules
 
-There is no date, `dayIndex`, or `startDate` on a day section. Its shape is `{id, heading, mode:"dayPlan", type:"normal", blocks:[]}`. The k-th dayPlan renders `tripPlan.startDate + k days`; headings are themes and renaming in place does not detach the date. Fresh trips include Notes, Places to visit, an untitled placeList, and one untitled dayPlan per trip day. Never delete those date sections. If their count is below the trip day count, repair the broken trip; do not paper over it with arbitrary new sections.
+Day sections can carry an explicit `date`; others are positional. The k-th dayPlan must correspond to `tripPlan.startDate + k days`, and an explicit date must agree. Headings are themes and renaming in place does not detach the date. Fresh trips include Notes, Places to visit, an untitled placeList, and one untitled dayPlan per trip day. Never delete those date sections. If their count is below the trip day count, repair the broken trip; do not paper over it with arbitrary new sections.
 
-Canonical flow: `sections list` → rename existing dayPlan IDs in date order → `places enrich-add` into those same IDs. Add `--mode dayPlan` only for genuinely more days than the date range, usually after `trips set-dates`. `validate` checks structure/render safety, not date alignment: assert count equals day count and anchor verification to the original section IDs, never offsets computed after rearrangement.
+Canonical flow: `sections list` → rename existing dayPlan IDs in date order → `places enrich-add` into those same IDs. `trips set-dates ... --align-day-sections` preserves existing day IDs, shifts their explicit dates and appends missing days; it refuses shrinking or an inconsistent original layout. Plain `set-dates` only changes trip dates. `validate` checks structure/render safety, not date alignment: assert count equals day count and anchor verification to the original section IDs, never offsets computed after rearrangement.
 
 The UI repair button appends one missing section per day through `POST /api/tripPlans/<key>/applyOps`, with `{"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}` and response `{"success":true}`. Afterward rename, move blocks, and delete only stray non-date themed sections. The CLI gap is tracked in README: proposed `trips validate --check-dates` and `sections ensure-days <tripKey>`.
 

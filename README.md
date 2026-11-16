@@ -1,6 +1,6 @@
 # Wanderlog CLI
 
-wlog manages Wanderlog trips, sections, and places, generates ICS calendars, and controls calendar subscriptions through a Worker admin API. It authenticates by capturing a cookie through Chrome/CDP in a temporary isolated profile that never touches the user's main Chrome profile; it runs on Node 22+ ESM with no package-local runtime dependencies.
+wlog manages Wanderlog trips, sections, and places, generates ICS calendars, and controls calendar subscriptions through a Worker admin API. It supports an isolated Chrome login and recovery from the verified personal-login Chrome session; it runs on Node 22+ ESM with no package-local runtime dependencies.
 
 <img width="1344" height="752" alt="file-e3b73864587e96c48c6b062cf16064ae" src="https://github.com/user-attachments/assets/222feadf-5454-4c40-8539-4df68b0b436a" />
 
@@ -11,11 +11,11 @@ The chezmoi-managed install places this repository at `~/.local/share/wanderlog-
 
 ```bash
 wlog --version
-wlog auth login
+wlog auth recover <tripKey>
 wlog auth status
 ```
 
-`auth login` opens Chrome, Chromium, Brave, or Edge with a temporary isolated profile, waits for sign-in, and captures only the `connect.sid` cookie over CDP. It does not touch the user's normal browser profile. Use `--timeout 10m` or `--verbose` as needed. If no browser is available, use `wlog auth import-cookie --cookie 'connect.sid=...'`. A 401/403 or exit code 3 means re-run `wlog auth login`.
+On no-token, 401/403, or exit code 3, use `wlog auth recover <tripKey>`. It verifies the launchd-owned personal-login Chrome, the Wanderlog account, and a requested trip, and imports the existing session in memory without putting a cookie on the command line. The selected Wanderlog identity is `alan200994@gmail.com`, not the default Google identity; the Wanderlog SSO item is `6xpucouavjlay33njoylvlam2e`, and the matching Google credential item is `vcwlhi4y3req5pma2ug6tt5xou` in Env-Secrets. The signed-out Wanderlog / signed-in Google path was verified live; Google password and authenticator-app challenges are not yet automated. Follow the [auth recovery runbook](.claude/skills/wanderlog/reference/auth-recovery.md). `auth login` remains the isolated-profile interactive flow; do not start a duplicate stale login. Never print, log, or write plaintext passwords, TOTP codes, or cookies outside the CLI's protected token store.
 
 Google Places commands (`places enrich-add`, `lodging add`, and `places check-status`) require `GOOGLE_MAPS_API_KEY` or `--google-key`. The documented key is in 1Password, item `wlog (wanderlog CLI) - google map places API`, vault `Env-Secrets`, field `credential`:
 
@@ -47,11 +47,11 @@ Verify every enriched result's `formatted_address` against the requested neighbo
 
 ## Date-section model (canonical)
 
-Sections have **no date field**. A `dayPlan` section has exactly the relevant shape `{id, heading, mode:"dayPlan", type:"normal", blocks:[]}`; `date`, `dayIndex`, and `startDate` are absent. Dates are purely positional: the k-th `dayPlan` section renders as `tripPlan.startDate + k days`. Renaming a dayPlan heading does not detach its date: the UI can show a date header with the theme as a subheading, and the sidebar can show `Mon 3/8: Drive Down the 5`.
+Some `dayPlan` sections have an explicit `date`; others are represented positionally. The k-th day section must correspond to `tripPlan.startDate + k days`, and any explicit date must agree. Renaming a dayPlan heading does not detach its date: the UI can show a date header with the theme as a subheading, and the sidebar can show `Mon 3/8: Drive Down the 5`.
 
 A fresh trip ships with `Notes` (`textOnly`), `Places to visit` (`placeList`), an untitled `placeList`, and one untitled empty `dayPlan` section per trip day. Those untitled dayPlan sections are the dates. Never delete them. If `count(dayPlan sections) < trip day count`, the trip is broken and Wanderlog shows “Your itinerary is missing sections for the dates of your trip.”
 
-The safe population flow is `sections list` → `sections rename <existing sectionId> "<Theme>"` in date order → `places enrich-add` into those same IDs. Use `sections add --mode dayPlan` only when the trip genuinely needs more days than its date range; usually the correct fix is `trips set-dates`. Keep unused date slots empty rather than adding filler.
+The safe population flow is `sections list` → `sections rename <existing sectionId> "<Theme>"` in date order → `places enrich-add` into those same IDs. `trips set-dates ... --align-day-sections` updates existing explicit dates and appends the missing days without deleting existing IDs; it refuses to shrink or shift an already inconsistent layout. Plain `set-dates` changes only trip dates. Keep unused date slots empty rather than adding filler.
 
 `wlog trips validate` may return `valid:true` for broken date layouts; it does not check date alignment. Assert that the dayPlan count equals the trip day count and verify rendered dates against the **original date-bound section IDs**. Never compute offsets over sections you just rearranged—that is circular.
 
@@ -72,6 +72,8 @@ The response is `{"success":true}`. After regeneration, rename the new sections 
 - Prefer Google-enriched POIs. Check `formatted_address`, especially for multi-branch chains, before accepting a result.
 - AI-created/touched place titles use `🤵‍♂️ <Name>`. `enrich-add` prepends `**Plan**` only with `--duration`, always adds `**What**`, and adds `**Cost**` only with `--cost`, before user notes. Notes should describe durable essence, not “after lunch”, “on the way back”, dates, times, or driving order.
 - Native lodging uses `lodging add`: a `type:"hotels"`, `mode:"placeList"`, `heading:"Hotels and lodging"` section with `type:"place"` blocks and `hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a `type:"hotel"` block; `lodging add-place` is the day-plan fallback.
+- `sections add <tripKey> "..." --mode placeList` creates a normal list; `sections add-note <tripKey> <sectionId> --notes "..."` adds a text block to a normal day or list section.
+- `trips set-dates <tripKey> <start> <end> --align-day-sections` preserves existing day IDs, shifts explicit day dates when present, and appends missing days atomically; it refuses to remove days or realign an already inconsistent layout. Re-fetch and verify rendered dates.
 - `check-status` reports actionable closed/invalid/error rows by default; `UNKNOWN` rows are hidden unless `--show-unknown`, and `OPERATIONAL` rows are counted but not listed.
 
 See `.claude/skills/wanderlog/SKILL.md` for the full command table, flags, auth runbook, schemas, notes convention, check-status semantics, applyOps gotchas, and troubleshooting signatures.

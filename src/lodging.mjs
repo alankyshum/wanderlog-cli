@@ -1,8 +1,8 @@
 import { randomInt } from 'node:crypto';
 import { loadToken } from './token-store.mjs';
-import { UsageError } from './errors.mjs';
+import { ConfirmRequiredError, UsageError } from './errors.mjs';
 import { addPlace, enrichAddPlace, gDetails, gSearch, toLegacy } from './places.mjs';
-import { getTrip, applyTripOps } from './trips.mjs';
+import { debugFetch, getTrip, applyTripOps } from './trips.mjs';
 import { findSectionIndex, parseIndex, rawSections, sectionPath } from './sections.mjs';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -150,6 +150,29 @@ async function buildHotelBlock({ ids, details, ai, userId, googleKey, fetchImpl 
   };
 }
 
+// Recovery for the narrow case where an unmapped native card makes the trip read fail.
+// The exact old object is required by the replacement operation; no other card is touched.
+export async function repairUnmapped(opts = {}, tripKey, details = {}) {
+  if (!tripKey || details.confirm !== tripKey) throw new ConfirmRequiredError(`Recovery requires --confirm ${tripKey}`);
+  if (!details.name || !details.query) throw new UsageError('--name and --query are required');
+  const index = parseIndex(details.index, 0, 100000, 'index');
+  const broken = await debugFetch(opts, tripKey);
+  if (broken?.success !== false || !String(broken.error || '').includes("reading 'location'")) throw new UsageError('Trip does not exhibit the expected missing-location failure');
+  const placeId = await gSearch(details.query, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch });
+  const googleDetails = await gDetails(placeId, { apiKey: details.googleKey || opts.googleKey, fetchImpl: opts.fetch });
+  const legacy = toLegacy(googleDetails);
+  if (!Number.isFinite(legacy.geometry.location.lat) || !Number.isFinite(legacy.geometry.location.lng)) throw new UsageError('Recovery place requires valid coordinates');
+  for (const key of HOTEL_PLACE_KEYS) if (legacy[key] === undefined) legacy[key] = null;
+  const replacement = pickReferenceHotelPlaceFields(legacy, { name: details.name, ai: true });
+  await applyTripOps(opts, tripKey, [{ p: sectionPath(index, 'blocks', 0, 'place'), od: { name: `🤵‍♂️ ${details.name}` }, oi: replacement }]);
+  const sections = rawSections(await getTrip(opts, tripKey));
+  const section = sections[index];
+  if (section?.type !== 'hotels' || section.blocks?.[0]?.place?.name !== replacement.name || section.blocks[0].place.place_id !== replacement.place_id) {
+    throw new Error('Recovery verification failed; stop and inspect the trip');
+  }
+  return { recovered: true, sectionId: section.id, placeName: replacement.name, formattedAddress: replacement.formatted_address };
+}
+
 function buildHotelText({ name, room, notes }) {
   const lines = [`**What:** ${name} — guesthouse / hotel.`];
   const roomText = String(room || '').trim();
@@ -160,14 +183,13 @@ function buildHotelText({ name, room, notes }) {
 }
 
 function pickReferenceHotelPlaceFields(legacy, { name, ai }) {
+  if (!name || !legacy.place_id || !legacy.formatted_address || !Number.isFinite(legacy.geometry?.location?.lat) || !Number.isFinite(legacy.geometry?.location?.lng)) {
+    throw new UsageError('Native lodging requires a resolved place name, ID, address, and coordinates');
+  }
   const place = {};
   for (const key of HOTEL_PLACE_KEYS) {
     if (key === 'name') place.name = ai ? `🤵‍♂️ ${name}` : name;
-    else if (legacy[key] !== undefined) place[key] = legacy[key];
-  }
-  const missing = HOTEL_PLACE_KEYS.filter(key => place[key] === undefined);
-  if (missing.length > 0) {
-    throw new UsageError(`Google Places details missing native hotel schema fields: ${missing.join(', ')}`);
+    else place[key] = legacy[key] ?? null;
   }
   return place;
 }
