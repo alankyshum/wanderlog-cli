@@ -62,6 +62,22 @@ export class ConfirmRequiredError extends ConfirmationRequiredError {
   }
 }
 
+export class ConflictError extends WanderlogError {
+  constructor(message) {
+    super(message);
+    this.name = 'ConflictError';
+    this.exitCode = 6;
+  }
+}
+
+export class VerificationError extends WanderlogError {
+  constructor(message) {
+    super(message);
+    this.name = 'VerificationError';
+    this.exitCode = 7;
+  }
+}
+
 export class UsageError extends WanderlogError {
   constructor(message) {
     super(message);

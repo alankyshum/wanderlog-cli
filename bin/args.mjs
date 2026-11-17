@@ -3,6 +3,7 @@ import { UsageError } from '../src/errors.mjs';
 const BOOL_FLAGS = new Set([
   'help', 'version', 'json', 'verbose', 'quiet', 'no-open',
   'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown', 'forbid-hotel-bookings', 'align-day-sections',
+  'force-unowned',
 ]);
 
 const VALUE_FLAGS = new Set([
@@ -10,6 +11,8 @@ const VALUE_FLAGS = new Set([
   'notes', 'query', 'duration', 'cost', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
   'timeout', 'user-id', 'confirm', 'start-date', 'end-date', 'check-in', 'check-out', 'to-index',
   'alias', 'timezone', 'room', 'traveler-names', 'confirmation-number', 'section-id',
+  'id', 'amount', 'currency', 'category', 'description', 'date', 'paid-by', 'split-with',
+  'external-id', 'owner-tag', 'expect-external-id', 'expect-description',
 ]);
 
 const OPTION_KEYS = {
@@ -36,6 +39,13 @@ const OPTION_KEYS = {
   'confirmation-number': 'confirmationNumber',
   'section-id': 'sectionId',
   cookie: 'cookieString',
+  'paid-by': 'paidBy',
+  'split-with': 'splitWith',
+  'external-id': 'externalId',
+  'owner-tag': 'ownerTag',
+  'expect-external-id': 'expectExternalId',
+  'expect-description': 'expectDescription',
+  'force-unowned': 'forceUnowned',
 };
 
 export function parseArgs(argv) {

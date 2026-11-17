@@ -1,7 +1,8 @@
 import { CLIError, UsageError } from './errors.mjs';
 import { formatOutput } from './output.mjs';
+import { BUDGET_USAGE } from './budget.mjs';
 
-const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'lodging', 'calendar', 'debug']);
+const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'lodging', 'calendar', 'debug', 'budget']);
 
 export function createCommandDispatcher(globalOptions = {}) {
   return {
@@ -16,6 +17,7 @@ export function createCommandDispatcher(globalOptions = {}) {
       if (command === 'lodging') return dispatchLodging(globalOptions, subcommand, args);
       if (command === 'calendar') return dispatchCalendar(globalOptions, subcommand, args);
       if (command === 'debug') return dispatchDebug(globalOptions, subcommand, args);
+      if (command === 'budget') return dispatchBudget(globalOptions, subcommand, args);
       return notImplemented();
     },
   };
@@ -225,6 +227,13 @@ async function dispatchDebug(opts, subcommand, args) {
   throw new UsageError('Usage: wlog debug <fetch|cleanup-ai> <tripKey>');
 }
 
+async function dispatchBudget(opts, subcommand, args) {
+  const { requireAuth } = await import('./auth.mjs');
+  const budget = await import('./budget.mjs');
+  await requireAuth(opts);
+  return ok(await budget.runBudgetCommand(opts, subcommand, args));
+}
+
 function ok(data) {
   return { success: true, data };
 }
@@ -303,6 +312,7 @@ Fallback: wlog lodging add-place <tripKey> <daySectionId> adds lodging as a
 normal day-plan place block when native hotel cards are not desired.`,
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
+    budget: BUDGET_USAGE,
   };
   return help[command];
 }

@@ -78,6 +78,27 @@ The response is `{"success":true}`. After regeneration, rename the new sections 
 
 See `.claude/skills/wanderlog/SKILL.md` for the full command table, flags, auth runbook, schemas, notes convention, check-status semantics, applyOps gotchas, and troubleshooting signatures.
 
+## Budget expenses
+
+`wlog budget` manages `tripPlan.itinerary.budget.expenses` with one guarded JSON0 op per command.
+
+```bash
+wlog budget list <tripKey> --json
+wlog budget add <tripKey> --amount 1.23 --currency USD --category food --description "Lunch" \
+  --date YYYY-MM-DD --paid-by <userId> [--split-with <userId,userId>] [--external-id <id>] [--owner-tag <tag>]
+wlog budget update <tripKey> --id <expenseId> --expect-external-id <id> [--amount N] [--currency CODE] \
+  [--category C] [--description TEXT] [--date YYYY-MM-DD] [--paid-by <userId>] [--split-with <ids>]
+wlog budget remove <tripKey> --id <expenseId> --expect-external-id <id>
+```
+
+- **Categories** are exactly Wanderlog's web-client enum: `flights`, `lodging`, `carRental`, `publicTransit`, `food`, `drinks`, `sightseeing`, `activities`, `shopping`, `gas`, `groceries`, `other`. Anything else is refused (there is no `transit`); an unknown category can break the Budget widget.
+- **Ownership** is a trailing description tag, ` [<owner-tag>:<external-id>]` (owner tag default `tf`), because expenses have no free-text note field. `list --json` returns `description` without the tag, `raw_description`, `owner_tag`, `external_id` and `owned` (true when the tag's owner matches `--owner-tag`). `add` refuses a second expense with the same owner tag and external id (exit 6), so a mirror run is idempotent.
+- **Guards**: `update` and `remove` need `--id` and either `--expect-external-id` (must equal the tag) or `--expect-description` (the exact current description, tag included). An expense without the caller's tag is refused unless `--force-unowned` is added to the guard. `update` keeps the tag and sends nothing when no field would change.
+- **People**: `--paid-by` (default: the logged-in user) and every `--split-with` id must be a contributor or editor of the trip. The default split is all contributors. A split is stored as `{"type":"individuals","users":[{"type":"registered","id":<userId>}]}` and divided equally among the listed users.
+- **Dates**: `--date` is stored as `associatedDate` (the day the expense applies to); `date` is the creation day, as in the web client.
+- **Currency** must be a code in the trip response's `resources.currencyRatesUSD` table.
+- **Verification**: each mutation fetches the trip, computes the index from that fresh array, posts one op using the exact old object, re-fetches, and checks the target expense, every other expense, `payments` and the budget amount. A failed check or an uncertain write (network error or 5xx) exits 7 and is never retried: run `budget list` before deciding what to do. `--dry-run` prints the op without writing.
+
 ## Maintainer guide
 
 ### Architecture
@@ -85,7 +106,7 @@ See `.claude/skills/wanderlog/SKILL.md` for the full command table, flags, auth 
 ```text
 .claude/skills/wanderlog/{bin/wlog.mjs,bin/args.mjs}
 src/{commands.mjs,auth.mjs,browser.mjs,token-store.mjs,client.mjs,trips.mjs,
-sections.mjs,places.mjs,calendar.mjs,ics-generator.mjs,models.mjs,
+sections.mjs,places.mjs,budget.mjs,calendar.mjs,ics-generator.mjs,models.mjs,
 ai-attribution.mjs,bulk.mjs,errors.mjs,output.mjs}
 test/                         # offline node:test suite and fixtures
 ```
@@ -114,4 +135,6 @@ Fixtures must not contain real cookies, personal data, or real trip IDs except t
 | 2 | Usage error or unknown command/flag |
 | 3 | Authentication required or expired |
 | 4 | Resource not found |
-| 5 | Confirmation required |
+| 5 | Confirmation required, or a `budget` guard refused the change |
+| 6 | `budget add`: an expense with the same owner tag and external id already exists |
+| 7 | `budget`: post-write verification failed or the write outcome is uncertain; not retried |
