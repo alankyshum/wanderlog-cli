@@ -133,12 +133,14 @@ async function dispatchSections(opts, subcommand, args) {
       return ok(await sections.renameSection(opts, args[0], args[1], joinArgs(args.slice(2))));
     case 'add-note':
       return ok(await sections.addNote(opts, args[0], args[1], opts.notes));
+    case 'update-note':
+      return ok(await sections.updateNote(opts, args[0], args[1], args[2], opts.notes, { confirm: opts.confirm, expectedNotes: opts.expectedNotes }));
     case 'delete':
       return ok(await sections.deleteSection(opts, args[0], args[1], { confirm: opts.confirm }));
     case 'move':
       return ok(await sections.moveSection(opts, args[0], args[1], args[2]));
     default:
-      throw new UsageError('Usage: wlog sections <list|add|rename|add-note|delete|move>');
+      throw new UsageError('Usage: wlog sections <list|add|rename|add-note|update-note|delete|move>');
   }
 }
 
@@ -278,7 +280,7 @@ FALLBACK
   wlog auth import-cookie --cookie 'connect.sid=...'
 `,
     trips: 'Usage: wlog trips <list|get|create|rename|set-dates|validate|delete> [tripKey] [options]',
-    sections: 'Usage: wlog sections <list|add|rename|add-note|delete|move> [tripKey] [options]\n  add-note <tripKey> <sectionId> --notes <text>',
+    sections: 'Usage: wlog sections <list|add|rename|add-note|update-note|delete|move> [tripKey] [options]\n  add-note <tripKey> <sectionId> --notes <text>\n  update-note <tripKey> <sectionId> <blockIndex> --notes <text> --expected-notes <old text> --confirm <blockId>',
     places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
 
 ENRICH ADD

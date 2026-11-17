@@ -73,6 +73,7 @@ The response is `{"success":true}`. After regeneration, rename the new sections 
 - AI-created/touched place titles use `🤵‍♂️ <Name>`. `enrich-add` prepends `**Plan**` only with `--duration`, always adds `**What**`, and adds `**Cost**` only with `--cost`, before user notes. Notes should describe durable essence, not “after lunch”, “on the way back”, dates, times, or driving order.
 - Native lodging uses `lodging add`: a `type:"hotels"`, `mode:"placeList"`, `heading:"Hotels and lodging"` section with `type:"place"` blocks and `hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a `type:"hotel"` block; `lodging add-place` is the day-plan fallback.
 - `sections add <tripKey> "..." --mode placeList` creates a normal list; `sections add-note <tripKey> <sectionId> --notes "..."` adds a text block to a normal day or list section.
+- `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` replaces only an exact, unformatted note, checking its ID and old text and re-fetching afterward; formatted notes are refused.
 - `trips set-dates <tripKey> <start> <end> --align-day-sections` preserves existing day IDs, shifts explicit day dates when present, and appends missing days atomically; it refuses to remove days or realign an already inconsistent layout. Re-fetch and verify rendered dates.
 - `check-status` reports actionable closed/invalid/error rows by default; `UNKNOWN` rows are hidden unless `--show-unknown`, and `OPERATIONAL` rows are counted but not listed.
 

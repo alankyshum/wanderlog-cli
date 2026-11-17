@@ -8,7 +8,7 @@ const BOOL_FLAGS = new Set([
 
 const VALUE_FLAGS = new Set([
   'config-dir', 'token-file', 'base-url', 'name', 'lat', 'lng', 'address',
-  'notes', 'query', 'duration', 'cost', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
+  'notes', 'expected-notes', 'query', 'duration', 'cost', 'google-key', 'start', 'end', 'mode', 'index', 'cookie', 'browser', 'cdp-url',
   'timeout', 'user-id', 'confirm', 'start-date', 'end-date', 'check-in', 'check-out', 'to-index',
   'alias', 'timezone', 'room', 'traveler-names', 'confirmation-number', 'section-id',
   'id', 'amount', 'currency', 'category', 'description', 'date', 'paid-by', 'split-with',
@@ -35,6 +35,7 @@ const OPTION_KEYS = {
   'check-out': 'checkOut',
   'to-index': 'toIndex',
   'google-key': 'googleKey',
+  'expected-notes': 'expectedNotes',
   'traveler-names': 'travelerNames',
   'confirmation-number': 'confirmationNumber',
   'section-id': 'sectionId',

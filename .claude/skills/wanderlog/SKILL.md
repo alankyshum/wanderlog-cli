@@ -26,6 +26,7 @@ Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documen
 | `sections list <tripKey>` / `sections add <tripKey> "<heading>" [--mode dayPlan|placeList|textOnly] [--index <n>]` | Inspect or add sections. |
 | `sections rename <tripKey> <sectionId> "<heading>"` / `sections move <tripKey> <sectionId> <toIndex>` | Rename or reorder a section. |
 | `sections add-note <tripKey> <sectionId> --notes "..."` | Add a verified note to a normal day or list section. |
+| `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` | Replace an exact unformatted note with ID and old-text guards; re-fetch verifies. |
 | `sections delete <tripKey> <sectionId> --confirm <sectionId>` | Delete a section. |
 | `places search "<query>"` / `places list <tripKey>` | Search or list normalized place blocks. |
 | `places add <tripKey> <sectionId> --name "..." --lat <lat> --lng <lng> --address "..." [--notes "..."] [--start HH:MM] [--end HH:MM] [--no-ai]` | Add a manual place only when Google cannot resolve it. |

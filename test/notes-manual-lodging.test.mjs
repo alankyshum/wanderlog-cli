@@ -33,6 +33,45 @@ test('note writes a verified native block and unmapped lodging is rejected', asy
   await assert.rejects(() => createCommandDispatcher({ configDir, notes: '' }).execute('sections', 'add-note', ['fixture', '100']), /--notes/);
 });
 
+test('update-note checks ID, exact old plain text and verifies saved result', async t => {
+  const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wlog-update-note-test-'));
+  t.after(() => fs.rm(configDir, { recursive: true, force: true }));
+  await saveToken({ configDir }, { version: TOKEN_VERSION, baseUrl: 'https://example.test', userId: 'fixture', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', cookies: [{ name: 'connect.sid', value: 'FAKE', domain: 'example.test', path: '/' }] });
+  const block = { id: 200, type: 'note', text: { ops: [{ insert: 'old\n' }] }, attachments: [] };
+  const trip = { tripPlan: { itinerary: { sections: [{ id: 100, type: 'normal', mode: 'dayPlan', blocks: [block] }] } } };
+  let writes = 0, ignore = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith('/applyOps')) {
+      writes++;
+      const op = JSON.parse(init.body).ops[0];
+      assert.deepEqual(op.od, block.text);
+      if (!ignore) block.text = op.oi;
+      return Response.json({ success: true });
+    }
+    if (String(url).includes('/api/tripPlans/fixture?')) return Response.json(trip);
+    throw new Error('unexpected network request');
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const run = opts => createCommandDispatcher({ configDir, notes: 'new', expectedNotes: 'old', ...opts }).execute('sections', 'update-note', ['fixture', '100', '0']);
+  await assert.rejects(() => run({ confirm: '201' }), /requires --confirm 200/);
+  await assert.rejects(() => run({ confirm: '200', expectedNotes: 'stale' }), /does not match/);
+  block.text.ops[0].attributes = { bold: true };
+  await assert.rejects(() => run({ confirm: '200' }), /formatted/);
+  delete block.text.ops[0].attributes;
+  block.type = 'place';
+  await assert.rejects(() => run({ confirm: '200' }), /not a note/);
+  block.type = 'note';
+  assert.equal(writes, 0);
+  ignore = true;
+  await assert.rejects(() => run({ confirm: '200' }), /Post-update verification failed/);
+  ignore = false;
+  const result = await run({ confirm: '200' });
+  assert.equal(result.data.blockId, 200);
+  assert.deepEqual(block.text, { ops: [{ insert: 'new\n' }] });
+  assert.deepEqual(block.attachments, []);
+});
+
 test('recovery requires exact expected old object and repaired trip validation', async t => {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wlog-repair-test-'));
   t.after(() => fs.rm(configDir, { recursive: true, force: true }));

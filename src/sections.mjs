@@ -58,6 +58,31 @@ export async function addNote(opts = {}, tripKey, sectionId, text) {
   return { sectionId: String(sectionId), blockId: id, text: text.trim() };
 }
 
+export async function updateNote(opts = {}, tripKey, sectionId, blockIndex, text, { confirm, expectedNotes } = {}) {
+  if (!tripKey || !sectionId || blockIndex == null || typeof text !== 'string' || !text.trim() || typeof expectedNotes !== 'string' || !expectedNotes.trim()) {
+    throw new UsageError('Usage: wlog sections update-note <tripKey> <sectionId> <blockIndex> --notes <text> --expected-notes <old text> --confirm <blockId>');
+  }
+  const sections = rawSections(await getTrip(opts, tripKey));
+  const idx = findSectionIndex(sections, sectionId);
+  const blocks = sections[idx].blocks;
+  if (!Array.isArray(blocks)) throw new UsageError('Section has no blocks');
+  const pos = parseIndex(blockIndex, 0, blocks.length - 1, 'blockIndex');
+  const block = blocks[pos];
+  if (block?.type !== 'note') throw new UsageError('Target block is not a note');
+  if (confirm !== String(block.id)) throw new ConfirmRequiredError(`Update requires --confirm ${block.id}`);
+  const old = block.text;
+  if (!old || Object.keys(old).length !== 1 || !Array.isArray(old.ops) || old.ops.length !== 1 || Object.keys(old.ops[0]).length !== 1 || typeof old.ops[0].insert !== 'string') {
+    throw new UsageError('Refusing to overwrite formatted or unsupported note text');
+  }
+  if (old.ops[0].insert !== `${expectedNotes.trim()}\n`) throw new UsageError('Expected note text does not match current text');
+  const replacement = { ops: [{ insert: `${text.trim()}\n` }] };
+  await applyTripOps(opts, tripKey, [{ p: sectionPath(idx, 'blocks', pos, 'text'), od: old, oi: replacement }]);
+  const after = rawSections(await getTrip(opts, tripKey));
+  const saved = after[findSectionIndex(after, sectionId)].blocks?.find(b => String(b.id) === String(block.id));
+  if (saved?.type !== 'note' || JSON.stringify(saved.text) !== JSON.stringify(replacement)) throw new ApiError(`Post-update verification failed for note ${block.id}`);
+  return { sectionId: String(sectionId), blockId: block.id, text: text.trim() };
+}
+
 export async function deleteSection(opts = {}, tripKey, sectionId, { confirm } = {}) {
   if (!tripKey || !sectionId) throw new UsageError('Usage: wlog sections delete <tripKey> <sectionId> --confirm <sectionId>');
   if (confirm !== String(sectionId)) throw new ConfirmRequiredError(`Deletion requires --confirm ${sectionId}`);
