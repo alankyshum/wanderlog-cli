@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
-import { ApiError, ConfirmRequiredError, NotFoundError, UsageError } from './errors.mjs';
+import { ApiError, ConfirmRequiredError, NotFoundError, UsageError, VerificationError } from './errors.mjs';
 import { normalizeSection } from './models.mjs';
-import { getTrip, applyTripOps } from './trips.mjs';
+import { getTrip, applyTripOps, applyGuardedOps, textCompare } from './trips.mjs';
 import { loadToken } from './token-store.mjs';
 
 export async function listSections(opts = {}, tripKey) {
@@ -76,11 +76,57 @@ export async function updateNote(opts = {}, tripKey, sectionId, blockIndex, text
   }
   if (old.ops[0].insert !== `${expectedNotes.trim()}\n`) throw new UsageError('Expected note text does not match current text');
   const replacement = { ops: [{ insert: `${text.trim()}\n` }] };
-  await applyTripOps(opts, tripKey, [{ p: sectionPath(idx, 'blocks', pos, 'text'), od: old, oi: replacement }]);
-  const after = rawSections(await getTrip(opts, tripKey));
-  const saved = after[findSectionIndex(after, sectionId)].blocks?.find(b => String(b.id) === String(block.id));
-  if (saved?.type !== 'note' || JSON.stringify(saved.text) !== JSON.stringify(replacement)) throw new ApiError(`Post-update verification failed for note ${block.id}`);
+  // applyOps does not compare `od`/`ld` values (see the header of
+  // src/budget.mjs), so an object replace at an index taken from the fetch
+  // could land on a neighbour after a phone edit. The note text is a plain
+  // string at text.ops[0].insert: the update is a text0 delete-old-insert-new
+  // on that string, which the server refuses unless the string still starts
+  // with the old text, with compares on the section and block type in front.
+  const inspect = `wlog sections list ${tripKey} --json`;
+  const ops = [
+    ...noteGuards(sections, idx, pos),
+    { p: sectionPath(idx, 'blocks', pos, 'text', 'ops', 0, 'insert'), t: 'text0', o: [{ p: 0, d: old.ops[0].insert }, { p: 0, i: replacement.ops[0].insert }] },
+  ];
+  const after = await applyGuardedOps(opts, tripKey, ops, {
+    label: `update of note ${block.id}`,
+    subject: 'Note',
+    changed: 'The trip changed since it was fetched (a section or block was added, moved, removed or edited)',
+    inspect,
+    read: data => rawSections({ raw: data }),
+  });
+  const saved = after.find(s => String(s.id) === String(sectionId))?.blocks?.find(b => String(b.id) === String(block.id));
+  if (saved?.type !== 'note' || JSON.stringify(saved.text) !== JSON.stringify(replacement)) {
+    throw new VerificationError(`Post-update verification failed for note ${block.id}: the write was accepted but the note ${saved ? 'does not hold the requested text' : 'is no longer in the section'}; not retried. Before retrying run: ${inspect}`);
+  }
   return { sectionId: String(sectionId), blockId: block.id, text: text.trim() };
+}
+
+// text0 compare components for the note at sections[idx].blocks[pos], to put
+// in front of its text change in the same batch: the section's heading and
+// date (when non-empty strings) and the block's type. Together with the text
+// change itself they tie the batch to this note; ids are numbers, which the
+// server cannot compare. Each compare is a prefix compare, so refuse a note
+// that another block of the trip could pass for: after a concurrent insert or
+// removal that other block could sit at this index.
+function noteGuards(sections, idx, pos) {
+  const section = sections[idx];
+  const block = section.blocks[pos];
+  const oldText = block.text.ops[0].insert;
+  const sectionFields = ['heading', 'date'].filter(key => typeof section[key] === 'string' && section[key] !== '');
+  const passes = (otherSection, other) => sectionFields.every(key => typeof otherSection[key] === 'string' && otherSection[key].startsWith(section[key]))
+    && typeof other?.type === 'string' && other.type.startsWith(block.type)
+    && typeof other.text?.ops?.[0]?.insert === 'string' && other.text.ops[0].insert.startsWith(oldText);
+  for (const [si, otherSection] of sections.entries()) {
+    for (const [bi, other] of (Array.isArray(otherSection?.blocks) ? otherSection.blocks : []).entries()) {
+      if ((si !== idx || bi !== pos) && passes(otherSection, other)) {
+        throw new ConfirmRequiredError(`Note ${block.id} cannot be told apart from block ${other.id} by section heading, date, block type and text, so the server cannot check which one it is at write time; edit it in the Wanderlog app`);
+      }
+    }
+  }
+  return [
+    ...sectionFields.map(key => textCompare(sectionPath(idx, key), section[key])),
+    textCompare(sectionPath(idx, 'blocks', pos, 'type'), block.type),
+  ];
 }
 
 export async function deleteSection(opts = {}, tripKey, sectionId, { confirm } = {}) {

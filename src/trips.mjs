@@ -2,7 +2,10 @@ import { randomInt } from 'node:crypto';
 import { createClient } from './client.mjs';
 import { loadToken } from './token-store.mjs';
 import { normalizeTrip, normalizeTripSummary } from './models.mjs';
-import { AuthRequiredError, ApiError, ConfirmRequiredError, NotFoundError, UsageError } from './errors.mjs';
+import {
+  AuthExpiredError, AuthRequiredError, ApiError, ConcurrentChangeError, ConfirmRequiredError, NotFoundError,
+  TokenCorruptError, UsageError, VerificationError,
+} from './errors.mjs';
 import { assertTripPlanValid, validateTripPlanStructure } from './validation.mjs';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -150,6 +153,57 @@ export async function applyTripOps(opts = {}, tripKey, ops = []) {
     assertTripPlanValid(data);
   }
   return result;
+}
+
+// Server error texts seen when a text0 compare component meets a different
+// value, no value or a non-string, and when a list index is past the end.
+const GUARD_REFUSAL_RE = /does not match deleted text|out of bounds|Cannot read properties of undefined|is not a function/;
+
+// A text0 component that leaves the string at `path` as it is but makes the
+// server refuse the whole batch unless that string starts with `text`. See the
+// header of src/budget.mjs for the measured applyOps contract.
+export function textCompare(path, text) {
+  return { p: path, t: 'text0', o: [{ p: 0, d: text }, { p: 0, i: text }] };
+}
+
+// Post one op batch that carries text0 compare components, then re-fetch.
+// Nothing is retried. A batch the server refused on a compare (or on an index
+// past the end) wrote nothing: ConcurrentChangeError, exit 8. Any failure
+// once the write may have been accepted: VerificationError, exit 7.
+// `subject` names what is written ("Budget"), `changed` says what moved,
+// `inspect` is the command to run before a retry and `read` turns the
+// re-fetched trip into the caller's view of it.
+export async function applyGuardedOps(opts = {}, tripKey, ops, { label, subject, changed, inspect, read = data => data }) {
+  const advice = `not retried. Before retrying run: ${inspect}`;
+  let result;
+  try {
+    result = await applyTripOps({ ...opts, skipPostValidate: true }, tripKey, ops);
+  } catch (err) {
+    // Missing or refused credentials, a 404 and a 4xx answer are definite
+    // rejections. Anything else (network failure, 5xx, a body that cannot be
+    // read or parsed) may or may not have been applied.
+    const definite = err instanceof AuthRequiredError || err instanceof AuthExpiredError || err instanceof TokenCorruptError
+      || err instanceof NotFoundError || err instanceof UsageError
+      || (err instanceof ApiError && err.status >= 400 && err.status < 500);
+    if (definite) throw err;
+    throw new VerificationError(`${subject} write outcome is uncertain for ${label} (${err?.message ?? err}); ${advice}`);
+  }
+  if (result?.success === false) {
+    // A refused batch is refused as a whole.
+    if (GUARD_REFUSAL_RE.test(String(result.error ?? ''))) {
+      throw new ConcurrentChangeError(`${changed}, so Wanderlog refused the ${label}; nothing was written. Safe to re-run after: ${inspect}`);
+    }
+    // The server's error text echoes trip data; report only its type.
+    throw new ApiError(`Wanderlog rejected the ${label}; nothing was written (${[].concat(result.errTypes ?? 'no error type').join(', ')})`);
+  }
+  // From here on the write has been accepted: every failure is exit 7.
+  try {
+    const data = await createClient(opts).get(`/api/tripPlans/${encodeURIComponent(tripKey)}?clientSchemaVersion=2`);
+    assertTripPlanValid(data);
+    return read(data);
+  } catch (err) {
+    throw new VerificationError(`${subject} write sent for ${label} but it could not be verified (${err?.message ?? err}); ${advice}`);
+  }
 }
 
 function unwrapTripList(data) {

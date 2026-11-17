@@ -1,12 +1,8 @@
 import { randomInt } from 'node:crypto';
 import { createClient } from './client.mjs';
 import { loadToken } from './token-store.mjs';
-import { applyTripOps } from './trips.mjs';
-import { assertTripPlanValid } from './validation.mjs';
-import {
-  ApiError, AuthExpiredError, AuthRequiredError, ConcurrentChangeError, ConfirmRequiredError, ConflictError,
-  NotFoundError, TokenCorruptError, UsageError, VerificationError,
-} from './errors.mjs';
+import { applyGuardedOps, textCompare } from './trips.mjs';
+import { ApiError, ConfirmRequiredError, ConflictError, NotFoundError, UsageError, VerificationError } from './errors.mjs';
 
 // Concurrency contract of POST /api/tripPlans/<key>/applyOps, measured on a
 // sandbox trip on 2026-11-16 with throwaway expenses (the official web editor
@@ -51,9 +47,6 @@ const TAG_SUFFIX_RE = / \[([A-Za-z0-9_-]{1,24}):([A-Za-z0-9._:/-]{1,80})\]$/;
 const EXPENSES_PATH = ['itinerary', 'budget', 'expenses'];
 // String fields the server can compare (description first: it carries the tag).
 const GUARD_FIELDS = [['description'], ['category'], ['date'], ['associatedDate'], ['amount', 'currencyCode']];
-// Server error texts seen when a compare component meets a different expense,
-// no expense or a non-string, and when a list index is past the end.
-const GUARD_REFUSAL_RE = /does not match deleted text|out of bounds|Cannot read properties of undefined|is not a function/;
 
 export const BUDGET_USAGE = `Usage: wlog budget <list|add|update|remove> <tripKey> [options]
 
@@ -311,36 +304,13 @@ async function fetchTrip(opts, tripKey) {
 }
 
 async function writeAndRefetch(opts, tripKey, ops, label) {
-  const inspect = `not retried. Before retrying run: wlog budget list ${tripKey} --json`;
-  let result;
-  try {
-    result = await applyTripOps({ ...opts, skipPostValidate: true }, tripKey, ops);
-  } catch (err) {
-    // Missing or refused credentials, a 404 and a 4xx answer are definite
-    // rejections. Anything else (network failure, 5xx, a body that cannot be
-    // read or parsed) may or may not have been applied.
-    const definite = err instanceof AuthRequiredError || err instanceof AuthExpiredError || err instanceof TokenCorruptError
-      || err instanceof NotFoundError || err instanceof UsageError
-      || (err instanceof ApiError && err.status >= 400 && err.status < 500);
-    if (definite) throw err;
-    throw new VerificationError(`Budget write outcome is uncertain for ${label} (${err?.message ?? err}); ${inspect}`);
-  }
-  if (result?.success === false) {
-    // A refused batch is refused as a whole (see the header comment).
-    if (GUARD_REFUSAL_RE.test(String(result.error ?? ''))) {
-      throw new ConcurrentChangeError(`The Budget changed since it was fetched (an expense changed, moved or was removed), so Wanderlog refused the ${label}; nothing was written. Safe to re-run after: wlog budget list ${tripKey} --json`);
-    }
-    // The server's error text echoes trip data; report only its type.
-    throw new ApiError(`Wanderlog rejected the ${label}; nothing was written (${[].concat(result.errTypes ?? 'no error type').join(', ')})`);
-  }
-  // From here on the write has been accepted: every failure is exit 7.
-  try {
-    const data = await fetchTrip(opts, tripKey);
-    assertTripPlanValid(data);
-    return readBudget(data);
-  } catch (err) {
-    throw new VerificationError(`Budget write sent for ${label} but it could not be verified (${err?.message ?? err}); ${inspect}`);
-  }
+  return applyGuardedOps(opts, tripKey, ops, {
+    label,
+    subject: 'Budget',
+    changed: 'The Budget changed since it was fetched (an expense changed, moved or was removed)',
+    inspect: `wlog budget list ${tripKey} --json`,
+    read: readBudget,
+  });
 }
 
 // text0 compare components for the expense at `index`, to put in front of a
@@ -362,7 +332,7 @@ function expenseGuards(state, index) {
   if (twin) {
     throw new ConfirmRequiredError(`Expense ${expense.id} cannot be told apart from expense ${twin.id} by description, category, dates and currency, so the server cannot check which one it is at write time; edit it in the Wanderlog app`);
   }
-  return fields.map(([path, text]) => ({ p: [...EXPENSES_PATH, index, ...path], t: 'text0', o: [{ p: 0, d: text }, { p: 0, i: text }] }));
+  return fields.map(([path, text]) => textCompare([...EXPENSES_PATH, index, ...path], text));
 }
 
 function fieldOps(index, old, next) {
