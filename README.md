@@ -73,7 +73,7 @@ The response is `{"success":true}`. After regeneration, rename the new sections 
 - AI-created/touched place titles use `🤵‍♂️ <Name>`. `enrich-add` prepends `**Plan**` only with `--duration`, always adds `**What**`, and adds `**Cost**` only with `--cost`, before user notes. Notes should describe durable essence, not “after lunch”, “on the way back”, dates, times, or driving order.
 - Native lodging uses `lodging add`: a `type:"hotels"`, `mode:"placeList"`, `heading:"Hotels and lodging"` section with `type:"place"` blocks and `hotel:{checkIn,checkOut,confirmationNumber,travelerNames}`. It is not a `type:"hotel"` block; `lodging add-place` is the day-plan fallback.
 - `sections add <tripKey> "..." --mode placeList` creates a normal list; `sections add-note <tripKey> <sectionId> --notes "..."` adds a text block to a normal day or list section.
-- `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` replaces only an exact, unformatted note, checking its ID and old text and re-fetching afterward; formatted notes are refused.
+- `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` replaces only an exact, unformatted note, checking its ID and old text and re-fetching afterward; formatted notes are refused. The write is server-checked: one batch that makes Wanderlog compare the section's heading and date, the block's type and the note's old text at that index before replacing the text, so a note that moved or changed since the fetch is never touched (exit 8: nothing written, safe to re-run). A note that another block could pass for (same section heading and date, a note whose text starts with the same text) is refused before any write (exit 5, as is a wrong `--confirm`; an `--expected-notes` that does not match the fetched text exits 2). A failure after the write was accepted exits 7: run `sections list` and look at the note before retrying. See “Guarded writes”.
 - `trips set-dates <tripKey> <start> <end> --align-day-sections` preserves existing day IDs, shifts explicit day dates when present, and appends missing days atomically; it refuses to remove days or realign an already inconsistent layout. Re-fetch and verify rendered dates.
 - `check-status` reports actionable closed/invalid/error rows by default; `UNKNOWN` rows are hidden unless `--show-unknown`, and `OPERATIONAL` rows are counted but not listed.
 
@@ -98,7 +98,18 @@ wlog budget remove <tripKey> --id <expenseId> --expect-external-id <id>
 - **People**: `--paid-by` (default: the logged-in user) and every `--split-with` id must be a contributor or editor of the trip. The default split is all contributors. A split is stored as `{"type":"individuals","users":[{"type":"registered","id":<userId>}]}` and divided equally among the listed users.
 - **Dates**: `--date` is stored as `associatedDate` (the day the expense applies to); `date` is the creation day, as in the web client.
 - **Currency** must be a code in the trip response's `resources.currencyRatesUSD` table.
-- **Verification**: each mutation fetches the trip, computes the index from that fresh array, posts one op using the exact old object, re-fetches, and checks the target expense, every other expense, `payments` and the budget amount. A failed check or an uncertain write (network error or 5xx) exits 7 and is never retried: run `budget list` before deciding what to do. `--dry-run` prints the op without writing.
+- **Verification**: each mutation fetches the trip, computes the index from that fresh array, posts one op batch, re-fetches, and checks the target expense, every other expense, `payments` and the budget amount. `update` and `remove` put server-side compares of the expense's description, category, dates and currency in front of the change in the same batch, so an expense that moved or changed since the fetch is never touched (exit 8: nothing written, safe to re-run); an expense without a description, or one that another expense could pass for, is refused before any write (exit 5). A failed check or an uncertain write (network error or 5xx) exits 7 and is never retried: run `budget list` before deciding what to do. `--dry-run` prints the ops without writing. See “Guarded writes”.
+
+## Guarded writes
+
+Wanderlog's `applyOps` endpoint takes list indexes and does not compare the old value of a delete or replace, so an index taken from a fetch can point at a neighbour once the phone app has added or removed something. It does check a `text0` string component, and it refuses a whole batch when one component fails. `budget update`, `budget remove` and `sections update-note` use that: compares on the target's string fields go in front of the change, in the same batch.
+
+- **Exit 8** (the Budget or the section changed since the fetch): Wanderlog refused the batch and nothing was written. Re-running is safe; the command fetches again. Bound the retries (two or three), then stop and report, because repeated refusals mean someone is editing the trip.
+- **Exit 7** (verification failed or the write outcome is uncertain): the write may have been applied. Never retry blindly: list first (`budget list`, `sections list` or `debug fetch`) and compare with what was intended.
+- **Exit 5**: a guard refused before any write (wrong `--confirm` or `--expect-*`, an unowned expense, or a target the server could not tell from another one). Nothing was written; a re-run gives the same answer until the input or the trip changes.
+- The compare is a prefix compare of strings only. Numbers (ids, amounts) cannot be compared, and a string that grew at its end still passes; the re-fetch after the write catches that case as exit 7.
+
+**Known limits**: every other index-addressed command (`trips rename`, `trips set-dates`, `sections rename|delete|move`, `places update|delete|move`, `lodging` edits, `debug cleanup-ai`) still relies on client-side checks only: it fetches, computes indexes and posts without a server-side compare, so an edit made in the app between its fetch and its post can make it touch a neighbouring item. `sections add-note` and the other inserts cannot destroy anything, but an insert computed from a stale fetch can land in the wrong place. Do not run these while someone is editing the trip, and re-fetch after each one.
 
 ## Maintainer guide
 
@@ -136,6 +147,7 @@ Fixtures must not contain real cookies, personal data, or real trip IDs except t
 | 2 | Usage error or unknown command/flag |
 | 3 | Authentication required or expired |
 | 4 | Resource not found |
-| 5 | Confirmation required, or a `budget` guard refused the change |
+| 5 | Confirmation required, or a `budget` / `sections update-note` guard refused the change before any write |
 | 6 | `budget add`: an expense with the same owner tag and external id already exists |
-| 7 | `budget`: post-write verification failed or the write outcome is uncertain; not retried |
+| 7 | `budget`, `sections update-note`: post-write verification failed or the write outcome is uncertain; not retried. List before retrying |
+| 8 | `budget update/remove`, `sections update-note`: the Budget or the section changed since the fetch and Wanderlog refused the batch; nothing written, safe to re-run (bounded) |
