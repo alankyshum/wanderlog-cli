@@ -6,7 +6,8 @@ import path from 'node:path';
 import { parseArgs } from '../bin/args.mjs';
 import { createCommandDispatcher } from '../src/commands.mjs';
 import { saveToken, TOKEN_VERSION } from '../src/token-store.mjs';
-import { ConfirmRequiredError, ConflictError, NotFoundError, UsageError, VerificationError } from '../src/errors.mjs';
+import { ConcurrentChangeError, ConfirmRequiredError, ConflictError, NotFoundError, UsageError, VerificationError } from '../src/errors.mjs';
+import { applyTripOps } from '../src/trips.mjs';
 import {
   EXPENSE_CATEGORIES, addExpense, buildExpense, listExpenses, normalizeExpense, parseOwnership, removeExpense, updateExpense,
 } from '../src/budget.mjs';
@@ -49,8 +50,44 @@ function fixtureTrip(expenses = []) {
   };
 }
 
-// Mock Wanderlog: serves the trip and applies JSON0 list ops with exact
-// old-value checks, like the real server. `hooks` lets a test sabotage a write.
+// The live server's applyOps, as measured on a sandbox trip (see the header of
+// src/budget.mjs): `ld` and `od` are NOT compared with the current value, an
+// index past the end and a failed text0 compare refuse the batch, a refused
+// batch writes nothing, and a refusal is HTTP 200 { success: false }.
+function serverApply(tripPlan, ops, mutateInsert) {
+  const doc = structuredClone(tripPlan);
+  for (const op of ops) {
+    const key = op.p.at(-1);
+    let parent = doc;
+    for (const step of op.p.slice(0, -1)) parent = parent[step];
+    if (op.t === 'text0') {
+      let text = parent[key];
+      for (const c of op.o) {
+        if (c.i != null) {
+          text = text.slice(0, c.p) + c.i + text.slice(c.p);
+        } else {
+          const cut = text.slice(c.p, c.p + c.d.length);
+          if (cut !== c.d) throw new Error(`Delete component '${c.d}' does not match deleted text '${cut}'`);
+          text = text.slice(0, c.p) + text.slice(c.p + c.d.length);
+        }
+      }
+      parent[key] = text;
+    } else if ('ld' in op || 'li' in op) {
+      if (key >= parent.length + ('ld' in op ? 0 : 1)) throw new Error('Referenced element is out of bounds');
+      if ('ld' in op) parent.splice(key, 1);
+      if ('li' in op) parent.splice(key, 0, mutateInsert ? mutateInsert(structuredClone(op.li)) : op.li);
+    } else if ('oi' in op) {
+      parent[key] = op.oi;
+    } else {
+      throw new Error(`mock server: unsupported op ${JSON.stringify(Object.keys(op))}`);
+    }
+  }
+  return doc;
+}
+
+// Mock Wanderlog around serverApply. `hooks` lets a test sabotage a write, or
+// act as another client (`beforeWrite` runs between this caller's fetch and
+// the moment its ops are applied).
 async function harness(t, trip, hooks = {}) {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wlog-budget-test-'));
   t.after(() => fs.rm(configDir, { recursive: true, force: true }));
@@ -64,30 +101,32 @@ async function harness(t, trip, hooks = {}) {
       const { ops } = JSON.parse(init.body);
       calls.ops.push(ops);
       if (hooks.postResponse) return hooks.postResponse();
+      hooks.beforeWrite?.(trip);
       if (!hooks.dropWrite) {
-        for (const op of ops) {
-          assert.deepEqual(op.p.slice(0, 3), ['itinerary', 'budget', 'expenses']);
-          const list = trip.tripPlan.itinerary.budget.expenses;
-          const index = op.p[3];
-          if ('ld' in op) {
-            assert.deepEqual(list[index], op.ld, 'ld must be the exact current object');
-            list.splice(index, 1);
-          }
-          if ('li' in op) list.splice(index, 0, hooks.mutateInsert ? hooks.mutateInsert(structuredClone(op.li)) : op.li);
+        try {
+          trip.tripPlan = serverApply(trip.tripPlan, ops, hooks.mutateInsert);
+        } catch (err) {
+          return Response.json({ success: false, messages: ['Sorry, but we ran into an unexpected error. Please try again later'], errTypes: ['unexpectedError'], error: `Error: message: ${err.message}\nlast working path: ${JSON.stringify(ops[0].p)}` });
         }
       }
       hooks.afterWrite?.(trip);
-      return Response.json({ success: true });
+      return hooks.postReply ? hooks.postReply() : Response.json({ success: true });
     }
     if (u.includes('/api/tripPlans/fixture?')) {
       calls.get += 1;
-      return Response.json(trip);
+      return hooks.getResponse?.(calls.get, trip) ?? Response.json(trip);
     }
     throw new Error(`unexpected network request: ${u}`);
   };
   t.after(() => { globalThis.fetch = originalFetch; });
   return { opts: { configDir }, calls };
 }
+
+const expenses = trip => trip.tripPlan.itinerary.budget.expenses;
+const guardOps = (index, expense) => [['description'], ['category'], ['date'], ['associatedDate'], ['amount', 'currencyCode']].map(field => {
+  const text = field.reduce((value, key) => value[key], expense);
+  return { p: ['itinerary', 'budget', 'expenses', index, ...field], t: 'text0', o: [{ p: 0, d: text }, { p: 0, i: text }] };
+});
 
 const baseAdd = { amount: '1.23', currency: 'usd', category: 'food', description: 'AI test expense', date: '2026-02-03', paidBy: String(ALICE), externalId: 'ai-test-1' };
 
@@ -261,22 +300,31 @@ test('uncertain and rejected writes are reported distinctly and never retried', 
   await assert.rejects(() => addExpense(refused.opts, 'fixture', baseAdd), err => err.name === 'ApiError' && /rejected/.test(err.message));
 });
 
-test('update replaces the exact old object at its fresh index and keeps the tag', async t => {
+test('update sends compare components, then field-level replacements, and keeps the tag', async t => {
   const first = fixtureExpense(1, 'Hand typed');
   const mine = fixtureExpense(2, 'Dinner [tf:a1]');
   const trip = fixtureTrip([first, mine]);
   const { opts, calls } = await harness(t, trip);
   const out = await updateExpense(opts, 'fixture', { id: '2', expectExternalId: 'a1', amount: '2.34', description: 'Dinner edited', category: 'drinks', date: '2026-03-04', splitWith: String(ALICE), paidBy: String(BOB) });
-  const op = calls.ops[0][0];
-  assert.equal(calls.ops[0].length, 1);
-  assert.deepEqual(op.p, ['itinerary', 'budget', 'expenses', 1]);
-  assert.deepEqual(op.ld, fixtureExpense(2, 'Dinner [tf:a1]'));
-  assert.deepEqual(op.li, fixtureExpense(2, 'Dinner edited [tf:a1]', {
+  const at = (...field) => ['itinerary', 'budget', 'expenses', 1, ...field];
+  assert.equal(calls.post, 1);
+  assert.deepEqual(calls.ops[0], [
+    ...guardOps(1, fixtureExpense(2, 'Dinner [tf:a1]')),
+    { p: at('amount', 'amount'), od: 10, oi: 2.34 },
+    { p: at('category'), od: 'food', oi: 'drinks' },
+    { p: at('description'), od: 'Dinner [tf:a1]', oi: 'Dinner edited [tf:a1]' },
+    { p: at('paidByUserId'), od: ALICE, oi: BOB },
+    { p: at('paidByUser'), od: { type: 'registered', id: ALICE }, oi: { type: 'registered', id: BOB } },
+    { p: at('splitWith'), od: fixtureExpense(2, '').splitWith, oi: { type: 'individuals', users: [{ type: 'registered', id: ALICE }] } },
+    { p: at('associatedDate'), od: '2026-01-02', oi: '2026-03-04' },
+  ]);
+  assert.ok(calls.ops[0].every(op => !('ld' in op) && !('li' in op)), 'the expense object is never deleted and re-inserted');
+  // id and creation date are not rewritten.
+  assert.deepEqual(expenses(trip)[1], fixtureExpense(2, 'Dinner edited [tf:a1]', {
     amount: { amount: 2.34, currencyCode: 'USD' }, category: 'drinks', associatedDate: '2026-03-04',
     paidByUserId: BOB, paidByUser: { type: 'registered', id: BOB },
     splitWith: { type: 'individuals', users: [{ type: 'registered', id: ALICE }] },
   }));
-  assert.equal(op.li.date, '2026-01-01', 'creation date is not rewritten');
   assert.equal(out.updated, true);
   assert.equal(out.external_id, 'a1');
   assert.equal(out.description, 'Dinner edited');
@@ -329,11 +377,11 @@ test('duplicate expense ids are refused', async t => {
   assert.equal(calls.post, 0);
 });
 
-test('remove deletes the exact old object at its fresh index and verifies', async t => {
+test('remove sends compare components, then the delete at the fresh index, and verifies', async t => {
   const trip = fixtureTrip([fixtureExpense(1, 'Hand typed'), fixtureExpense(2, 'Dinner [tf:a1]'), fixtureExpense(3, 'Lunch [tf:a2]')]);
   const { opts, calls } = await harness(t, trip);
   const dry = await removeExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1', dryRun: true });
-  assert.deepEqual(dry.ops, [{ p: ['itinerary', 'budget', 'expenses', 1], ld: fixtureExpense(2, 'Dinner [tf:a1]') }]);
+  assert.deepEqual(dry.ops, [...guardOps(1, fixtureExpense(2, 'Dinner [tf:a1]')), { p: ['itinerary', 'budget', 'expenses', 1], ld: fixtureExpense(2, 'Dinner [tf:a1]') }]);
   assert.equal(calls.post, 0);
   const out = await removeExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1' });
   assert.deepEqual(calls.ops[0], dry.ops);
@@ -342,7 +390,7 @@ test('remove deletes the exact old object at its fresh index and verifies', asyn
   assert.deepEqual(trip.tripPlan.itinerary.budget.expenses.map(e => e.id), [1, 3]);
   // The index is recomputed from fresh state on the next call.
   await removeExpense(opts, 'fixture', { id: 3, expectDescription: 'Lunch [tf:a2]' });
-  assert.deepEqual(calls.ops[1][0].p, ['itinerary', 'budget', 'expenses', 1]);
+  assert.deepEqual(calls.ops[1].at(-1).p, ['itinerary', 'budget', 'expenses', 1]);
 });
 
 test('update and remove verification failures', async t => {
@@ -357,6 +405,131 @@ test('update and remove verification failures', async t => {
 
   const vanished = await harness(t, make(), { afterWrite: trip => trip.tripPlan.itinerary.budget.expenses.pop() });
   await assert.rejects(() => updateExpense(vanished.opts, 'fixture', { id: 2, expectExternalId: 'a1', amount: '3' }), /absent/);
+});
+
+test('the server deletes by index without comparing the old value (measured on the live server)', async t => {
+  const trip = fixtureTrip([fixtureExpense(1, 'Hand typed'), fixtureExpense(2, 'Dinner [tf:a1]')]);
+  const { opts } = await harness(t, trip);
+  // An unguarded `ld` carrying expense 2, aimed at the index of expense 1.
+  const reply = await applyTripOps({ ...opts, skipPostValidate: true }, 'fixture', [{ p: ['itinerary', 'budget', 'expenses', 0], ld: fixtureExpense(2, 'Dinner [tf:a1]') }]);
+  assert.deepEqual(reply, { success: true });
+  assert.deepEqual(expenses(trip).map(e => e.id), [2], 'the expense at the index is gone, not the one in the op');
+  // Past the end, and a failed compare in front of a valid delete: refused whole.
+  const past = await applyTripOps({ ...opts, skipPostValidate: true }, 'fixture', [{ p: ['itinerary', 'budget', 'expenses', 4], ld: fixtureExpense(2, 'Dinner [tf:a1]') }]);
+  assert.equal(past.success, false);
+  assert.match(past.error, /out of bounds/);
+  expenses(trip).push(fixtureExpense(3, 'Lunch [tf:a2]'));
+  const refused = await applyTripOps({ ...opts, skipPostValidate: true }, 'fixture', [{ p: ['itinerary', 'budget', 'expenses', 1], ld: expenses(trip)[1] }, ...guardOps(0, fixtureExpense(9, 'Something else'))]);
+  assert.equal(refused.success, false);
+  assert.match(refused.error, /does not match deleted text/);
+  assert.deepEqual(expenses(trip).map(e => e.id), [2, 3], 'the valid delete listed before the failed compare is not applied');
+});
+
+const changedUnderneath = err => err instanceof ConcurrentChangeError && err.exitCode === 8 && /nothing was written/.test(err.message) && /budget list fixture/.test(err.message);
+
+test('stale index: another client removes an earlier expense between the fetch and the write', async t => {
+  const make = () => fixtureTrip([fixtureExpense(1, 'Hand typed'), fixtureExpense(2, 'Dinner [tf:a1]'), fixtureExpense(3, 'Taxi home')]);
+  // The phone deletes expense 1, so index 1 now holds the human's "Taxi home".
+  const phone = { beforeWrite: trip => { if (expenses(trip)[0].id === 1) expenses(trip).shift(); } };
+
+  const removal = fixtureTrip(make().tripPlan.itinerary.budget.expenses);
+  const r = await harness(t, removal, phone);
+  await assert.rejects(() => removeExpense(r.opts, 'fixture', { id: 2, expectExternalId: 'a1' }), changedUnderneath);
+  assert.equal(r.calls.post, 1, 'never retried');
+  assert.deepEqual(expenses(removal), [fixtureExpense(2, 'Dinner [tf:a1]'), fixtureExpense(3, 'Taxi home')], 'only the phone\'s own removal happened');
+  // Re-running plans from fresh state and succeeds.
+  assert.equal((await removeExpense(r.opts, 'fixture', { id: 2, expectExternalId: 'a1' })).removed, true);
+  assert.deepEqual(expenses(removal), [fixtureExpense(3, 'Taxi home')]);
+
+  const update = make();
+  const u = await harness(t, update, phone);
+  await assert.rejects(() => updateExpense(u.opts, 'fixture', { id: 2, expectExternalId: 'a1', amount: '99', description: 'Changed' }), changedUnderneath);
+  assert.equal(u.calls.post, 1);
+  assert.deepEqual(expenses(update), [fixtureExpense(2, 'Dinner [tf:a1]'), fixtureExpense(3, 'Taxi home')]);
+});
+
+test('stale index: another client inserts, shortens the list, or edits the target meanwhile', async t => {
+  const make = () => fixtureTrip([fixtureExpense(1, 'Hand typed'), fixtureExpense(2, 'Dinner [tf:a1]')]);
+  const scenarios = [
+    ['insert in front', trip => expenses(trip).unshift(fixtureExpense(7, 'Coffee from the phone'))],
+    ['target removed, index past the end', trip => expenses(trip).pop()],
+    ['target description edited', trip => { expenses(trip)[1].description = 'Supper [tf:a1]'; }],
+    ['target currency edited', trip => { expenses(trip)[1].amount.currencyCode = 'KRW'; }],
+  ];
+  for (const [name, phoneEdit] of scenarios) {
+    for (const run of [
+      opts => removeExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1' }),
+      opts => updateExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1', category: 'drinks' }),
+    ]) {
+      const trip = make();
+      let expected;
+      const { opts, calls } = await harness(t, trip, { beforeWrite: tr => { phoneEdit(tr); expected = structuredClone(tr.tripPlan.itinerary.budget); } });
+      await assert.rejects(() => run(opts), changedUnderneath, name);
+      assert.equal(calls.post, 1, name);
+      assert.deepEqual(trip.tripPlan.itinerary.budget, expected, `${name}: nothing beyond the phone's edit`);
+    }
+  }
+  // An add whose append index is past a list that got shorter is refused whole too.
+  const trip = make();
+  const { opts, calls } = await harness(t, trip, { beforeWrite: tr => expenses(tr).pop() });
+  await assert.rejects(() => addExpense(opts, 'fixture', baseAdd), changedUnderneath);
+  assert.equal(calls.post, 1);
+  assert.deepEqual(expenses(trip).map(e => e.id), [1]);
+});
+
+test('update leaves a field another client changed meanwhile alone and reports the difference', async t => {
+  const trip = fixtureTrip([fixtureExpense(2, 'Dinner [tf:a1]')]);
+  const { opts } = await harness(t, trip, { beforeWrite: tr => { expenses(tr)[0].amount.amount = 77; } });
+  await assert.rejects(() => updateExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1', category: 'drinks' }), err => err instanceof VerificationError && err.exitCode === 7);
+  assert.equal(expenses(trip)[0].amount.amount, 77, 'the phone\'s amount is not overwritten');
+  assert.equal(expenses(trip)[0].category, 'drinks');
+});
+
+test('update and remove refuse an expense the server could not tell apart at write time', async t => {
+  const trip = fixtureTrip([fixtureExpense(1, 'Coffee'), fixtureExpense(2, 'Coffee and cake'), fixtureExpense(3, ''), fixtureExpense(4, 'Tea', { category: 'drinks' })]);
+  const { opts, calls } = await harness(t, trip);
+  const refusal = pattern => err => err instanceof ConfirmRequiredError && err.exitCode === 5 && pattern.test(err.message);
+  for (const fn of [updateExpense, removeExpense]) {
+    const extra = fn === updateExpense ? { amount: '5' } : {};
+    // The compare is a prefix compare: "Coffee and cake" would pass for "Coffee".
+    await assert.rejects(() => fn(opts, 'fixture', { id: 1, expectDescription: 'Coffee', forceUnowned: true, ...extra }), refusal(/cannot be told apart from expense 2/));
+    await assert.rejects(() => fn(opts, 'fixture', { id: 3, expectDescription: '', forceUnowned: true, dryRun: true, ...extra }), refusal(/has no description/));
+  }
+  assert.equal(calls.post, 0);
+  // The longer description is not a prefix of the shorter one, and another category tells two apart.
+  await removeExpense(opts, 'fixture', { id: 2, expectDescription: 'Coffee and cake', forceUnowned: true });
+  await removeExpense(opts, 'fixture', { id: 4, expectDescription: 'Tea', forceUnowned: true });
+  assert.deepEqual(expenses(trip).map(e => e.id), [1, 3]);
+});
+
+test('every failure after the write was sent is the uncertain-write exit', async t => {
+  const make = () => fixtureTrip([fixtureExpense(1, 'Hand typed'), fixtureExpense(2, 'Dinner [tf:a1]')]);
+  const unreadable = () => ({ status: 200, ok: true, text: async () => { throw new TypeError('terminated'); } });
+  const afterWrite = n => n > 1; // the first GET is the planning fetch
+  const cases = [
+    ['invalid trip structure on re-fetch', { getResponse: (n, trip) => afterWrite(n) ? Response.json({ tripPlan: { ...trip.tripPlan, itinerary: { ...trip.tripPlan.itinerary, sections: 'gone' } } }) : undefined }],
+    ['no budget on re-fetch', { getResponse: (n, trip) => afterWrite(n) ? Response.json({ tripPlan: { ...trip.tripPlan, itinerary: { sections: trip.tripPlan.itinerary.sections } } }) : undefined }],
+    ['re-fetch body cannot be read', { getResponse: n => afterWrite(n) ? unreadable() : undefined }],
+    ['re-fetch is not JSON', { getResponse: n => afterWrite(n) ? new Response('<html>', { status: 200 }) : undefined }],
+    ['re-fetch says session expired', { getResponse: n => afterWrite(n) ? new Response('no', { status: 401 }) : undefined }],
+    ['write reply body cannot be read', { postReply: unreadable }],
+    ['write reply is not JSON', { postReply: () => new Response('<html>', { status: 200 }) }],
+  ];
+  const runs = [
+    ['add', opts => addExpense(opts, 'fixture', baseAdd)],
+    ['update', opts => updateExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1', amount: '3' })],
+    ['remove', opts => removeExpense(opts, 'fixture', { id: 2, expectExternalId: 'a1' })],
+  ];
+  for (const [name, hooks] of cases) {
+    for (const [verb, run] of runs) {
+      const { opts, calls } = await harness(t, make(), hooks);
+      await assert.rejects(() => run(opts), err => err instanceof VerificationError && err.exitCode === 7 && /Before retrying run: wlog budget list fixture --json/.test(err.message), `${verb}: ${name}`);
+      assert.equal(calls.post, 1, `${verb}: ${name}: never retried`);
+    }
+  }
+  // Definite refusals before or instead of a write keep their own exit codes.
+  const denied = await harness(t, make(), { postResponse: () => new Response('no', { status: 403 }) });
+  await assert.rejects(() => removeExpense(denied.opts, 'fixture', { id: 2, expectExternalId: 'a1' }), err => err.name === 'AuthExpiredError' && err.exitCode === 3);
 });
 
 test('CLI flags route through the dispatcher', async t => {

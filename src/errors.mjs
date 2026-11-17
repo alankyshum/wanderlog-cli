@@ -78,6 +78,16 @@ export class VerificationError extends WanderlogError {
   }
 }
 
+// The server refused a guarded write because the data changed since it was
+// read. Nothing was written; re-read and re-run.
+export class ConcurrentChangeError extends WanderlogError {
+  constructor(message) {
+    super(message);
+    this.name = 'ConcurrentChangeError';
+    this.exitCode = 8;
+  }
+}
+
 export class UsageError extends WanderlogError {
   constructor(message) {
     super(message);

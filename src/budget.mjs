@@ -3,7 +3,35 @@ import { createClient } from './client.mjs';
 import { loadToken } from './token-store.mjs';
 import { applyTripOps } from './trips.mjs';
 import { assertTripPlanValid } from './validation.mjs';
-import { ApiError, ConfirmRequiredError, ConflictError, NetworkError, NotFoundError, UsageError, VerificationError } from './errors.mjs';
+import {
+  ApiError, AuthExpiredError, AuthRequiredError, ConcurrentChangeError, ConfirmRequiredError, ConflictError,
+  NotFoundError, TokenCorruptError, UsageError, VerificationError,
+} from './errors.mjs';
+
+// Concurrency contract of POST /api/tripPlans/<key>/applyOps, measured on a
+// sandbox trip on 2026-11-16 with throwaway expenses (the official web editor
+// does not use this endpoint for edits: it submits over a ShareDB WebSocket,
+// /api/tripPlans/wsOverall/<key>, with the document version; this endpoint
+// takes only { ops } and ignores v / version / overallVersion in the body):
+//   - `ld` deletes whatever sits at the index. The old value is NOT compared:
+//     an `ld` carrying expense B aimed at expense A's index deleted A and
+//     answered { success: true }. `od` is not compared either.
+//   - An `ld` or `li` index past the end answers HTTP 200 { success: false,
+//     errTypes: ['unexpectedError'], error: '… out of bounds …' }.
+//   - A text0 component { p: [..., field], t: 'text0', o: [{ p: 0, d: TEXT },
+//     { p: 0, i: TEXT }] } IS compared: when the string at that path does not
+//     start with TEXT the server answers { success: false, error: "… Delete
+//     component … does not match deleted text …" }. When it matches, the
+//     string is left as it was.
+//   - A batch is atomic: one failing component rejects every op in it, also
+//     the ones listed before it.
+// So an index taken from a fetch is unsafe on its own (the phone app may add
+// or remove an expense before the post), and update/remove put text0 compare
+// components for the target's string fields in front of the change, in the
+// same batch. A mismatch writes nothing and exits 8 (ConcurrentChangeError),
+// as does an add whose append index is past a list that got shorter. An add
+// cannot delete anything, so it carries no compare components.
+// The compare is a prefix compare of strings only: see expenseGuards.
 
 // Wanderlog's own expense category enum, read from its web client bundle
 // (itin-compiled.azureedge.net/.../2864.main.*.js, webpack module 549167).
@@ -21,6 +49,11 @@ const OWNER_TAG_RE = /^[A-Za-z0-9_-]{1,24}$/;
 const EXTERNAL_ID_RE = /^[A-Za-z0-9._:/-]{1,80}$/;
 const TAG_SUFFIX_RE = / \[([A-Za-z0-9_-]{1,24}):([A-Za-z0-9._:/-]{1,80})\]$/;
 const EXPENSES_PATH = ['itinerary', 'budget', 'expenses'];
+// String fields the server can compare (description first: it carries the tag).
+const GUARD_FIELDS = [['description'], ['category'], ['date'], ['associatedDate'], ['amount', 'currencyCode']];
+// Server error texts seen when a compare component meets a different expense,
+// no expense or a non-string, and when a list index is past the end.
+const GUARD_REFUSAL_RE = /does not match deleted text|out of bounds|Cannot read properties of undefined|is not a function/;
 
 export const BUDGET_USAGE = `Usage: wlog budget <list|add|update|remove> <tripKey> [options]
 
@@ -39,9 +72,13 @@ Categories: ${EXPENSE_CATEGORIES.join(', ')}.
 Ownership is a trailing description tag " [<owner-tag>:<external-id>]" (owner tag
 default "${DEFAULT_OWNER_TAG}"). update/remove refuse an expense without the caller's tag unless
 --force-unowned is given. Every mutation fetches first, sends one op batch,
-re-fetches and verifies; nothing is retried.
+re-fetches and verifies; nothing is retried. update/remove make the server
+compare the expense's description, category, dates and currency in the same
+batch, so an expense that moved or changed since the fetch is never touched.
 Exit codes: 2 usage/invalid value, 4 expense not found, 5 guard refused,
-6 external id already present, 7 post-write verification failed or write uncertain.`;
+6 external id already present, 7 post-write verification failed or write
+uncertain (run budget list before retrying), 8 expense changed or moved since
+the fetch: nothing written, safe to re-run.`;
 
 export async function runBudgetCommand(opts = {}, subcommand, args = []) {
   const tripKey = args[0];
@@ -170,7 +207,9 @@ export async function updateExpense(opts = {}, tripKey, input = {}) {
   if (canonical(next) === canonical(old)) {
     return { updated: false, unchanged: true, ...normalizeExpense(old, index, ownerTag) };
   }
-  const ops = [{ p: [...EXPENSES_PATH, index], ld: old, li: next }];
+  // Field-level replacements keep the expense object (and any field this
+  // call does not change) in place; the compare components go first.
+  const ops = [...expenseGuards(before, index), ...fieldOps(index, old, next)];
   if (input.dryRun) return { dryRun: true, ops };
 
   const after = await writeAndRefetch(opts, tripKey, ops, `update of expense ${old.id}`);
@@ -187,7 +226,7 @@ export async function removeExpense(opts = {}, tripKey, input = {}) {
   const ownerTag = normalizeOwnerTag(input.ownerTag);
   const before = readBudget(await fetchTrip(opts, tripKey));
   const { index, expense: old } = locateGuarded(before, input, ownerTag);
-  const ops = [{ p: [...EXPENSES_PATH, index], ld: old }];
+  const ops = [...expenseGuards(before, index), { p: [...EXPENSES_PATH, index], ld: old }];
   if (input.dryRun) return { dryRun: true, ops };
 
   const after = await writeAndRefetch(opts, tripKey, ops, `removal of expense ${old.id}`);
@@ -272,25 +311,73 @@ async function fetchTrip(opts, tripKey) {
 }
 
 async function writeAndRefetch(opts, tripKey, ops, label) {
+  const inspect = `not retried. Before retrying run: wlog budget list ${tripKey} --json`;
   let result;
   try {
     result = await applyTripOps({ ...opts, skipPostValidate: true }, tripKey, ops);
   } catch (err) {
-    // A 4xx, auth or not-found answer is a definite rejection; anything else
-    // (network failure, 5xx, unreadable body) may or may not have been applied.
-    const uncertain = err instanceof NetworkError || (err instanceof ApiError && !(err.status >= 400 && err.status < 500));
-    if (!uncertain) throw err;
-    throw new VerificationError(`Budget write outcome is uncertain for ${label} (${err.message}); not retried. Inspect with: wlog budget list ${tripKey} --json`);
+    // Missing or refused credentials, a 404 and a 4xx answer are definite
+    // rejections. Anything else (network failure, 5xx, a body that cannot be
+    // read or parsed) may or may not have been applied.
+    const definite = err instanceof AuthRequiredError || err instanceof AuthExpiredError || err instanceof TokenCorruptError
+      || err instanceof NotFoundError || err instanceof UsageError
+      || (err instanceof ApiError && err.status >= 400 && err.status < 500);
+    if (definite) throw err;
+    throw new VerificationError(`Budget write outcome is uncertain for ${label} (${err?.message ?? err}); ${inspect}`);
   }
-  if (result?.success === false) throw new ApiError(`Wanderlog rejected the ${label}: ${JSON.stringify(result).slice(0, 200)}`);
-  let data;
+  if (result?.success === false) {
+    // A refused batch is refused as a whole (see the header comment).
+    if (GUARD_REFUSAL_RE.test(String(result.error ?? ''))) {
+      throw new ConcurrentChangeError(`The Budget changed since it was fetched (an expense changed, moved or was removed), so Wanderlog refused the ${label}; nothing was written. Safe to re-run after: wlog budget list ${tripKey} --json`);
+    }
+    // The server's error text echoes trip data; report only its type.
+    throw new ApiError(`Wanderlog rejected the ${label}; nothing was written (${[].concat(result.errTypes ?? 'no error type').join(', ')})`);
+  }
+  // From here on the write has been accepted: every failure is exit 7.
   try {
-    data = await fetchTrip(opts, tripKey);
+    const data = await fetchTrip(opts, tripKey);
+    assertTripPlanValid(data);
+    return readBudget(data);
   } catch (err) {
-    throw new VerificationError(`Budget write sent for ${label} but the verification re-fetch failed (${err.message}); not retried. Inspect with: wlog budget list ${tripKey} --json`);
+    throw new VerificationError(`Budget write sent for ${label} but it could not be verified (${err?.message ?? err}); ${inspect}`);
   }
-  assertTripPlanValid(data);
-  return readBudget(data);
+}
+
+// text0 compare components for the expense at `index`, to put in front of a
+// change in the same batch. The server compares each string from its start,
+// so a longer string with the same beginning also passes, and numbers (id,
+// amount) cannot be compared at all. To keep that from mattering, refuse an
+// expense that has no description or that another expense could pass for.
+function expenseGuards(state, index) {
+  const expense = state.expenses[index];
+  const fields = GUARD_FIELDS.map(path => [path, path.reduce((value, key) => value?.[key], expense)])
+    .filter(([, text]) => typeof text === 'string' && text !== '');
+  if (fields[0]?.[0] !== GUARD_FIELDS[0]) {
+    throw new ConfirmRequiredError(`Expense ${expense.id} has no description, so the server cannot check it is still the same expense at write time; edit it in the Wanderlog app`);
+  }
+  const twin = state.expenses.find((other, i) => i !== index && fields.every(([path, text]) => {
+    const value = path.reduce((v, key) => v?.[key], other);
+    return typeof value === 'string' && value.startsWith(text);
+  }));
+  if (twin) {
+    throw new ConfirmRequiredError(`Expense ${expense.id} cannot be told apart from expense ${twin.id} by description, category, dates and currency, so the server cannot check which one it is at write time; edit it in the Wanderlog app`);
+  }
+  return fields.map(([path, text]) => ({ p: [...EXPENSES_PATH, index, ...path], t: 'text0', o: [{ p: 0, d: text }, { p: 0, i: text }] }));
+}
+
+function fieldOps(index, old, next) {
+  const ops = [];
+  const visit = (path, a, b) => {
+    if (canonical(a) === canonical(b)) return;
+    const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (path.length === 1 && path[0] === 'amount' && plain(a) && plain(b)) {
+      for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) visit([...path, key], a[key], b[key]);
+      return;
+    }
+    ops.push({ p: [...EXPENSES_PATH, index, ...path], ...(a === undefined ? {} : { od: a }), oi: b });
+  };
+  for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) visit([key], old[key], next[key]);
+  return ops;
 }
 
 function locateGuarded(state, input, ownerTag) {
