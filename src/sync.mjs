@@ -210,6 +210,16 @@ export function resolveDesired(doc, desired) {
       } else {
         refusals.push(`new section ${s.key} id ${s.id} is already used in Wanderlog`);
       }
+    } else if (s.new && s.type === 'hotels') {
+      // A trip has at most one Hotels section: an existing one takes the new one's place.
+      const found = sections.filter(x => x.type === 'hotels' && x.mode === s.mode);
+      if (found.length === 1) {
+        s.id = Number(found[0].id);
+        s.new = false;
+        resolved[s.key] = s.id;
+      } else if (found.length > 1) {
+        refusals.push(`desired section ${s.key} matches ${found.length} Wanderlog sections`);
+      }
     }
     for (const b of s.blocks) {
       if (b.new && where.has(b.id)) {
@@ -604,6 +614,14 @@ function replace(path, holder, key, value) {
   return key in holder ? { p: path, od: holder[key], oi: value } : { p: path, oi: value };
 }
 
+// Native "Hotels and lodging" section, as the web app makes it (and src/lodging.mjs): no date key.
+function newHotelsSection(d, blocks) {
+  return {
+    id: d.id, heading: d.heading, type: 'hotels', mode: 'placeList', blocks,
+    text: { ops: [{ insert: '\n' }] }, placeMarkerColor: '#e67e22', placeMarkerIcon: 'bed',
+  };
+}
+
 function newListSection(d, blocks) {
   return {
     id: d.id, heading: d.heading, type: 'normal', mode: 'placeList', blocks, date: null,
@@ -624,6 +642,7 @@ export function buildApplyBatch(doc, desired, lock) {
   const touched = new Set();
   const writes = [];
   const inserts = [];
+  let hotelsInsert = null;
   const deletes = [];
   for (const d of desired.sections) {
     const blocksFor = existing => d.blocks.map(b => {
@@ -633,7 +652,11 @@ export function buildApplyBatch(doc, desired, lock) {
       return writeBlock(want, old, owner);
     });
     if (d.new) {
-      if (d.type !== 'normal' || d.mode !== 'placeList') throw new SyncExit(EXIT.refused, `Only normal list sections are created; ${d.key} is ${d.type}/${d.mode}`);
+      if (d.type === 'hotels' && d.mode === 'placeList' && !hotelsInsert) {
+        hotelsInsert = newHotelsSection(d, blocksFor(false));
+        continue;
+      }
+      if (d.type !== 'normal' || d.mode !== 'placeList') throw new SyncExit(EXIT.refused, `Only normal list and Hotels sections are created; ${d.key} is ${d.type}/${d.mode}`);
       inserts.push(newListSection(d, blocksFor(false)));
       continue;
     }
@@ -662,6 +685,14 @@ export function buildApplyBatch(doc, desired, lock) {
   deletes.sort((a, b) => b - a);
   for (const si of deletes) components.push({ p: sectionPath(si), ld: sections[si] });
   const remaining = sections.filter((_, i) => !deletes.includes(i));
+  if (hotelsInsert) {
+    // Where the web app puts it: right after the Notes section, else before the first day.
+    const notes = remaining.findIndex(s => s.type === 'textOnly');
+    const day = remaining.findIndex(s => s.mode === 'dayPlan');
+    const hi = notes !== -1 ? notes + 1 : (day === -1 ? remaining.length : day);
+    components.push({ p: sectionPath(hi), li: hotelsInsert });
+    remaining.splice(hi, 0, hotelsInsert);
+  }
   const firstDay = remaining.findIndex(s => s.mode === 'dayPlan');
   let at = firstDay === -1 ? remaining.length : firstDay;
   for (const section of inserts) components.push({ p: sectionPath(at++), li: section });

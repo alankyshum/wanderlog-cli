@@ -333,6 +333,60 @@ test('an ambiguous or missing section is refused, never guessed', () => {
   assert.ok(result.refusals.includes('desired section list:notes has no Wanderlog id'));
 });
 
+// A trip with no Hotels section in Wanderlog, and a plan that adds a kind: hotels list (UAT D2).
+function withoutHotels() {
+  const doc = clone(docOf('after'));
+  doc.tripPlan.itinerary.sections = doc.tripPlan.itinerary.sections.filter(s => s.type !== 'hotels');
+  const desired = clone(V.desired2);
+  const hotels = desired.sections.find(s => s.key === 'list:hotels');
+  hotels.id = 300000777;
+  hotels.new = true;
+  hotels.blocks.forEach((b, i) => { b.id = 300000780 + i; b.new = true; });
+  const lock = clone(V.lock2);
+  delete lock.sections['list:hotels'];
+  delete lock.section_hashes['list:hotels'];
+  for (const b of hotels.blocks) delete lock.entries[b.key];
+  return { doc, desired, lock };
+}
+
+test('a new Hotels section is created natively after Notes when Wanderlog has none', async t => {
+  const { doc, desired, lock } = withoutHotels();
+  const found = analyse(doc, desired, lock);
+  assert.deepEqual(found.refusals, []);
+  assert.deepEqual(found.drift, []);
+  assert.deepEqual(found.ops, [{ op: 'insert_section', section: 'list:hotels', blocks: ['harbour-inn-stay', 'old-town-flat-stay'] }]);
+
+  const server = fakeServer(t, doc);
+  const f = files(tmp(), { desired, lock });
+  const result = await runSync({ ...opts, desired: f.desired, last: f.lock, expectVersion: String(doc.tripPlan.overallVersion) }, 'apply', [TRIP]);
+  assert.equal(result.exitCode, 0, result.rawOutput);
+  const out = JSON.parse(result.rawOutput);
+  assert.equal(out.ops_applied, 1);
+  assert.equal(out.verified, true);
+  const sections = server.doc.tripPlan.itinerary.sections;
+  assert.deepEqual(sections.map(s => s.id), [200000001, 300000777, 200000099, 200000003, 467721092, 200000011, 200000012]);
+  const { blocks, ...shape } = sections[1];
+  assert.deepEqual(shape, {
+    id: 300000777, heading: 'Hotels and lodging', type: 'hotels', mode: 'placeList',
+    text: { ops: [{ insert: '\n' }] }, placeMarkerColor: '#e67e22', placeMarkerIcon: 'bed',
+  });
+  assert.deepEqual(blocks.map(b => b.id), [300000780, 300000781]);
+  for (const block of blocks) assert.deepEqual(checkBlockSchema(block), [], `block ${block.id}`);
+  assert.equal(validateTripPlanStructure(server.doc).valid, true);
+  assert.equal(analyse(server.doc, { ...desired, sections: desired.sections.map(s => ({ ...s, new: false, blocks: s.blocks.map(b => ({ ...b, new: false })) })) },
+    { ...lock, sections: { ...lock.sections, 'list:hotels': 300000777 } }).op_count, 0);
+});
+
+test('a new Hotels section takes the one existing Hotels section; two are refused', () => {
+  const { desired, lock } = withoutHotels();
+  const found = analyse(docOf('after'), desired, lock);
+  assert.deepEqual(found.resolved, { 'list:hotels': 200000002 });
+  assert.ok(!found.ops.some(o => o.op === 'insert_section'));
+  const two = clone(docOf('after'));
+  two.tripPlan.itinerary.sections.splice(1, 0, { ...clone(two.tripPlan.itinerary.sections[1]), id: 200000098, blocks: [] });
+  assert.ok(analyse(two, desired, lock).refusals.includes('desired section list:hotels matches 2 Wanderlog sections'));
+});
+
 test('a new block whose id already landed in its section is not written again; an id used elsewhere is refused', () => {
   const desired = clone(DESIRED);
   for (const s of desired.sections) s.new = false;
