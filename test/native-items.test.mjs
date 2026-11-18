@@ -138,6 +138,9 @@ test('builders give flight, train and rental car blocks the native field set; no
     assert.deepEqual(raw.attachments, []);
     assert.equal(canon(normBlock(raw)), canon(want), `${d.type} round trip`);
   }
+  const note = { id: 77, type: 'note', text: { ops: [{ insert: 'Customs\n' }] }, addedBy: { type: 'user', userId: '9999' }, attachments: [] };
+  const converted = writeBlock({ ...strip(FLIGHT), id: 77 }, note, OWNER);
+  assert.deepEqual(converted.addedBy, { type: 'user', userId: '9999' }, 'a type change keeps the original addedBy');
   const flight = writeBlock(strip(FLIGHT), undefined, OWNER);
   assert.deepEqual(flight.travelerNames, []);
   assert.equal(flight.depart.type, 'depart');

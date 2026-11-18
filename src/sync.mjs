@@ -525,9 +525,11 @@ function fillRequired(raw, owner) {
 }
 
 // Desired block (normal form) -> raw Wanderlog block. An existing block keeps every field the
-// plan does not model; if its Google place id changed, the old Google fields are dropped.
+// plan does not model; if its Google place id changed, the old Google fields are dropped. A block
+// whose type changes (a note becoming a place card) is built natively but keeps its addedBy.
 export function writeBlock(d, old, owner) {
   const raw = old && old.type === d.type ? clone(old) : nativeBlock(d, owner);
+  if (old && old.type !== d.type && old.addedBy && typeof old.addedBy === 'object') raw.addedBy = clone(old.addedBy);
   raw.id = d.id;
   if (d.type === 'place') {
     raw.place = writePlace(raw.place, d.place, ['point_of_interest']);
