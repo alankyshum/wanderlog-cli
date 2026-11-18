@@ -419,6 +419,33 @@ test('the pre-post schema check refuses a batch whose new or replaced block miss
   assert.deepEqual(nativeBlock({ id: 1, type: 'note' }, owner), { id: 1, type: 'note', addedBy: { type: 'user', userId: owner }, attachments: [] });
 });
 
+test('a rewritten block keeps a digit-string addedBy.userId (older CLI blocks) and passes the schema check', () => {
+  const owner = 4242;
+  const path = ['itinerary', 'sections', 0, 'blocks'];
+  const old = { id: 21, type: 'note', text: { ops: [{ insert: 'old\n' }] }, addedBy: { type: 'user', userId: '1144884' }, attachments: [] };
+  const rewritten = writeBlock({ id: 21, type: 'note', text: { ops: [{ insert: 'new\n' }] } }, old, owner);
+  assert.deepEqual(rewritten.addedBy, { type: 'user', userId: '1144884' }, 'existing addedBy is never rewritten');
+  assert.deepEqual(checkBlockSchema(rewritten), []);
+  assert.doesNotThrow(() => assertBatchSchema([{ p: path, od: [old], oi: [rewritten] }], [old]));
+  const oldPlace = { id: 22, type: 'place', place: { name: 'Old', place_id: null, geometry: { location: { lat: 1, lng: 1 } }, formatted_address: '', types: ['point_of_interest'] }, text: { ops: [{ insert: 'o\n' }] }, addedBy: { type: 'user', userId: '9' }, imageSize: 'small', upvotedBy: [], travelMode: null, attachments: [], imageKeys: [] };
+  const place = writeBlock({ id: 22, type: 'place', place: { name: 'New', formatted_address: '', geometry: { location: { lat: 1, lng: 1 } } }, text: { ops: [{ insert: 'n\n' }] } }, oldPlace, owner);
+  assert.deepEqual(place.addedBy, { type: 'user', userId: '9' });
+  assert.doesNotThrow(() => assertBatchSchema([{ p: path, od: [oldPlace], oi: [place] }], [oldPlace]));
+  // New blocks keep the native (web-created) shape: a number.
+  assert.equal(typeof writeBlock({ id: 23, type: 'note', text: { ops: [{ insert: 'n\n' }] } }, undefined, owner).addedBy.userId, 'number');
+  for (const userId of ['12a', '', ' 12', '-1', '1.5', null, undefined, 1.5, {}]) {
+    const bad = { ...rewritten, addedBy: { type: 'user', userId } };
+    if (userId === undefined) delete bad.addedBy.userId;
+    assert.deepEqual(checkBlockSchema(bad), ['addedBy'], `userId ${JSON.stringify(userId)}`);
+    assert.throws(() => assertBatchSchema([{ p: path, od: [], oi: [bad] }], []), err => err.exitCode === EXIT.refused && /lacks addedBy/.test(err.message));
+  }
+  for (const addedBy of [null, undefined, 'user', { userId: 9 }]) {
+    const bad = { ...rewritten, addedBy };
+    if (addedBy === undefined) delete bad.addedBy;
+    assert.deepEqual(checkBlockSchema(bad), ['addedBy']);
+  }
+});
+
 test('apply refuses (exit 3, no post) when a desired block would be written incomplete', async t => {
   const server = fakeServer(t, docOf('after'));
   const doc = clone(docOf('after'));

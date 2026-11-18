@@ -478,7 +478,11 @@ export function checkBlockSchema(block) {
   const need = (ok, field) => { if (!ok) missing.push(field); };
   need(Number.isInteger(block?.id), 'id');
   need(BLOCK_TYPES.includes(block?.type), 'type');
-  need(isObject(block?.addedBy) && typeof block.addedBy.type === 'string' && Number.isInteger(block.addedBy.userId), 'addedBy');
+  // Web-created blocks store userId as a number; blocks from older CLI add commands store the same
+  // id as a digit-only string, which Wanderlog accepts. Both pass; an existing addedBy is never rewritten.
+  const userId = block?.addedBy?.userId;
+  need(isObject(block?.addedBy) && typeof block.addedBy.type === 'string'
+    && (Number.isInteger(userId) || (typeof userId === 'string' && /^\d+$/.test(userId))), 'addedBy');
   need(Array.isArray(block?.attachments), 'attachments');
   if (block?.type === 'place') {
     const place = block.place;
