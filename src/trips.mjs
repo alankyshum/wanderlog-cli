@@ -51,14 +51,27 @@ export async function createTrip(opts = {}, { destination, startDate = null, end
   if (geoId == null) throw new ApiError(`Top destination match is missing an id for: ${destination}`);
 
   const client = createClient(opts);
+  // The body the web app sends (captured 2026-11-17). Without initialMapsPlaceIds the server
+  // fails with "Cannot read properties of undefined (reading 'length')"; type must be 'plan'.
   const data = await client.post('/api/tripPlans', {
     geoIds: [geoId],
-    type: 'tripPlan',
+    initialMapsPlaceIds: [],
+    initialSections: null,
+    initialEmailId: null,
+    type: 'plan',
     startDate: startDate || null,
     endDate: endDate || null,
     privacy: 'private',
+    isMapEmbed: false,
+    title: null,
+    autogenerateItineraryOptions: null,
+    language: 'en',
   });
-  return normalizeTripSummary(unwrapTripPayload(data));
+  if (data?.success === false || !unwrapTripPayload(data)?.key) {
+    throw new ApiError(`Wanderlog did not create the trip (${[].concat(data?.errTypes ?? 'no trip key in the response').join(', ')})`);
+  }
+  // The response is {success, data: {key, id, title, viewKey, createdSectionIds}}; viewKey is not returned.
+  return normalizeTripSummary({ ...unwrapTripPayload(data), startDate: startDate || null, endDate: endDate || null });
 }
 
 export async function renameTrip(opts = {}, tripKey, newTitle) {
@@ -134,7 +147,8 @@ export async function deleteTrip(opts = {}, tripKey, { confirm } = {}) {
   if (confirm !== tripKey) throw new ConfirmRequiredError(`Deletion requires --confirm ${tripKey}`);
   const client = createClient(opts);
   await client.del(`/api/tripPlans/${encodeURIComponent(tripKey)}`);
-  return { deleted: true, tripKey };
+  // Wanderlog moves a deleted trip to its Trash; only the web UI deletes it permanently.
+  return { deleted: true, trashed: true, tripKey, note: 'Moved to Wanderlog Trash; delete permanently in the web UI (Trash, then Delete permanently)' };
 }
 
 export async function searchDestination(opts = {}, query) {

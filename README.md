@@ -53,7 +53,7 @@ A fresh trip ships with `Notes` (`textOnly`), `Places to visit` (`placeList`), a
 
 The safe population flow is `sections list` → `sections rename <existing sectionId> "<Theme>"` in date order → `places enrich-add` into those same IDs. `trips set-dates ... --align-day-sections` updates existing explicit dates and appends the missing days without deleting existing IDs; it refuses to shrink or shift an already inconsistent layout. Plain `set-dates` changes only trip dates. Keep unused date slots empty rather than adding filler.
 
-`wlog trips validate` may return `valid:true` for broken date layouts; it does not check date alignment. Assert that the dayPlan count equals the trip day count and verify rendered dates against the **original date-bound section IDs**. Never compute offsets over sections you just rearranged—that is circular.
+Plain `wlog trips validate` may return `valid:true` for broken date layouts. `wlog trips validate <tripKey> --check-dates` also requires one `normal/dayPlan` section per trip day, dated `startDate + i` in order, and exits 1 when the trip is invalid. Still verify rendered dates against the **original date-bound section IDs**. Never compute offsets over sections you just rearranged—that is circular.
 
 ### Repairing an already-broken trip
 
@@ -63,10 +63,14 @@ The UI's “Create the sections for me” button is client-side React behavior t
 {"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}
 ```
 
-The response is `{"success":true}`. After regeneration, rename the new sections in date order, move blocks into them with `places move`, then delete only stray non-date themed sections. Never delete the original date-bound sections. The CLI currently cannot detect or regenerate missing date sections. Durable TODO: implement `wlog trips validate --check-dates` (dayPlan count versus trip day count and anchored alignment reporting) and `wlog sections ensure-days <tripKey>` (append exactly the payload above, do not reorder/delete existing sections, re-fetch and verify).
+The response is `{"success":true}`. After regeneration, rename the new sections in date order, move blocks into them with `places move`, then delete only stray non-date themed sections. Never delete the original date-bound sections. `wlog trips validate --check-dates` detects missing or misdated day sections; the CLI cannot regenerate them. Durable TODO: implement `wlog sections ensure-days <tripKey>` (append exactly the payload above, do not reorder/delete existing sections, re-fetch and verify).
 
 ## Safety and durable notes
 
+- `trips create` sends the body the web app sends (`type: "plan"`, `initialMapsPlaceIds: []`, …); before 2026-11-17 it sent `type: "tripPlan"` without `initialMapsPlaceIds`, the server answered `success:false` (`TypeError: Cannot read properties of undefined (reading 'length')`) and the CLI printed a trip of nulls. A `success:false` answer now fails with the server's error type.
+- `trips delete` moves the trip to Wanderlog's Trash; a trashed trip already reads as `tripPlanNotFound`. Permanent deletion is only in the web UI: Trash, select the trip, Delete permanently.
+- `trips fetch <tripKey> --redacted --out F` writes a private (0600) snapshot with `editKey`, `viewKey`, `suggestKey`, `journalKey` and every `TripPlanKeys[].key` replaced by `[REDACTED]`. `debug fetch` stays unredacted; never save its output.
+- `places resolve (--query Q | --place-id ID) --json` returns `{place_id, name, formatted_address, lat, lng, types, plan_place: {google_id, address, lat, lng}}` from Google Places only (no Wanderlog read or write). Key: `--google-key`, `GOOGLE_MAPS_API_KEY`, else `GOOGLE_API_KEY`.
 - List trips and sections before mutation; fetch and validate after every write. `applyOps` can return `success:true` for an invalid/no-op or renderer-breaking write.
 - Destructive commands require the exact `--confirm <id>` value. Never drive the browser or call raw APIs as a shortcut around the CLI workflow.
 - Prefer Google-enriched POIs. Check `formatted_address`, especially for multi-branch chains, before accepting a result.
@@ -109,6 +113,23 @@ Wanderlog's `applyOps` endpoint takes list indexes and does not compare the old 
 - **Exit 5**: a guard refused before any write (wrong `--confirm` or `--expect-*`, an unowned expense, or a target the server could not tell from another one). Nothing was written; a re-run gives the same answer until the input or the trip changes.
 - The compare is a prefix compare of strings only. Numbers (ids, amounts) cannot be compared, and a string that grew at its end still passes; the re-fetch after the write catches that case as exit 7.
 
+## Trip-file sync (`wlog sync`)
+
+The vault's `trip_sync.py` derives `desired.json` from a trip folder; `wlog sync` makes the trip's managed sections match it. The contract (calls, JSON, exit codes, normal form, drift) is the vault's `trip-plan/reference/sync-cli-contract.md`; its executable reference is the vault's `fake_sync_wlog.py`, whose outputs `test/fixtures/sync/vectors.json` records (`gen_vectors.py` regenerates it).
+
+```bash
+wlog sync plan    <tripKey> [--desired D] [--last LOCK] [--snapshot S] [--out-snapshot P] [--out-report R] --json
+wlog sync apply   <tripKey> --desired D --last LOCK --expect-version N [--ack-drift R] [--out-snapshot P] --json
+wlog sync restore <tripKey> --from-snapshot S --last LOCK --target-lock T --expect-version N [--ack-drift R] [--out-snapshot P] --json
+```
+
+- **plan** is read-only. It fetches (or reads `--snapshot`), resolves `id: null` sections (a day section by its date, Notes and Hotels by type; ambiguous or missing is refused), diffs by id, and classifies drift against the lock with one fingerprint per change. Stdout: `{version, op_count, ops, drift, refusals, hashes, matched, resolved}`. `P` is the redacted fetch; `R` (`{trip, version, snapshot, drift}`) is written only with `--last`.
+- **apply** refuses before any write: exit 8 when `overallVersion` ≠ `N`; exit 3 on a structural refusal; exit 10 when a drift fingerprint is missing from `R`. It then builds one batch: `text0` compares first (each touched section's heading and day date, and one identity string per current block: place name, first text op, checklist title), then `blocks` array replaces (ids kept, unmodelled fields carried), heading and Notes text sets, list deletes and list inserts (just before the first day section). Before posting it checks every new or rewritten block for the required fields (below), simulates the batch locally and refuses (exit 3) unless the simulated trip is valid and equal to desired. After the post it re-fetches: managed sections must equal desired and `overallVersion` must be `N + 1`, else exit 7. Nothing is retried. Stdout: `{version_before, version_after, verified, ops_applied, components, hashes, matched, resolved}`.
+- **restore** puts the sections managed in `LOCK` or `T` back to their raw content in `S`, deletes managed list sections that `S` lacks and re-inserts managed sections `S` has; other sections are untouched. Its drift gate compares Wanderlog with `LOCK` only, so its `--ack-drift` report must come from `sync plan --last LOCK` **without** `--desired`.
+- **Exit codes** (sync only): 0 done, 2 bad input, 3 refused (nothing written), 4 fetch or auth failure, 5 the server refused the batch on a compare (nothing written), 7 uncertain or verify mismatch (inspect before anything else), 8 version changed since `plan` (re-capture), 10 unacknowledged drift. Every outcome, failures included, is one JSON document on stdout.
+- **Who fills Wanderlog's own fields**: the CLI. `desired.json` carries only modelled fields; the CLI adds the native set the web UI gives a new block, using the trip owner's `tripPlan.userId`: place `{id, type, place, text, addedBy: {type: "user", userId}, imageSize: "small", upvotedBy: [], travelMode: null, attachments: [], imageKeys: []}` plus `startTime`/`endTime` when timed (a new place without a Google id gets `place_id: null`, `types: ["point_of_interest"]`); note `{id, type, text, addedBy, attachments: []}`; checklist `{id, type, title, items: [{id, checked, text}], attachments: [], addedBy}`; a hotel card also gets `hotel.travelerNames: []`. A rewritten existing block keeps every field the plan does not model, and gains any of these it lacked; if its Google place id changed, the old Google fields are dropped. A place block with only id/type/place/text once broke a real trip permanently, hence the hard pre-post check.
+- **Deliberate differences from the reference fake**: a `new` block, row or section whose id already sits in Wanderlog in the same place is treated as a landed write (not re-inserted, not reported in `matched`); the same id anywhere else is refused. Verify uses the lock without the keys desired dropped, so a deleted list is not reported missing.
+
 **Known limits**: every other index-addressed command (`trips rename`, `trips set-dates`, `sections rename|delete|move`, `places update|delete|move`, `lodging` edits, `debug cleanup-ai`) still relies on client-side checks only: it fetches, computes indexes and posts without a server-side compare, so an edit made in the app between its fetch and its post can make it touch a neighbouring item. `sections add-note` and the other inserts cannot destroy anything, but an insert computed from a stale fetch can land in the wrong place. Do not run these while someone is editing the trip, and re-fetch after each one.
 
 ## Maintainer guide
@@ -119,11 +140,11 @@ Wanderlog's `applyOps` endpoint takes list indexes and does not compare the old 
 .claude/skills/wanderlog/{bin/wlog.mjs,bin/args.mjs}
 src/{commands.mjs,auth.mjs,browser.mjs,token-store.mjs,client.mjs,trips.mjs,
 sections.mjs,places.mjs,budget.mjs,calendar.mjs,ics-generator.mjs,models.mjs,
-ai-attribution.mjs,bulk.mjs,errors.mjs,output.mjs}
+ai-attribution.mjs,bulk.mjs,errors.mjs,output.mjs,sync.mjs,sync-cli.mjs}
 test/                         # offline node:test suite and fixtures
 ```
 
-`client.mjs` owns the authenticated HTTP client; command modules are network-isolated behind it. The Worker lives at `public/workers/wanderlog-calendar/` and serves `https://calendar.alanshum.dev/wanderlog`. It vendors copies of `src/ics-generator.mjs` and `src/models.mjs`; keep those copies synchronized with `worker/src/` when ICS behavior changes. `calendar.mjs` uses the Worker admin API for subscriptions, refresh, and previews.
+`client.mjs` owns the authenticated HTTP client; command modules are network-isolated behind it. The Worker lives at `worker/` and serves `https://calendar.alanshum.dev/wanderlog`. It vendors copies of `src/ics-generator.mjs` and `src/models.mjs`; keep those copies synchronized with `worker/src/` when ICS behavior changes. `calendar.mjs` uses the Worker admin API for subscriptions, refresh, and previews.
 
 ### Where to add commands
 
@@ -151,3 +172,5 @@ Fixtures must not contain real cookies, personal data, or real trip IDs except t
 | 6 | `budget add`: an expense with the same owner tag and external id already exists |
 | 7 | `budget`, `sections update-note`: post-write verification failed or the write outcome is uncertain; not retried. List before retrying |
 | 8 | `budget update/remove`, `sections update-note`: the Budget or the section changed since the fetch and Wanderlog refused the batch; nothing written, safe to re-run (bounded) |
+
+`wlog sync` has its own table (see “Trip-file sync”): 3 refused, 4 fetch or auth, 5 compare refused, 7 uncertain, 8 version changed, 10 unacknowledged drift.

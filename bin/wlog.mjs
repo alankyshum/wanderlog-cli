@@ -41,6 +41,14 @@ async function main() {
     const dispatcher = createCommandDispatcher(options);
     const result = await dispatcher.execute(command, subcommand, args);
 
+    // Machine-facing commands (sync) return their exact stdout and exit code. Write, then exit
+    // in the callback, so a large document on a pipe is not cut off by process.exit.
+    if (result.rawOutput !== undefined) {
+      if (result.stderr) console.error(result.stderr);
+      await new Promise(resolve => process.stdout.write(result.rawOutput, resolve));
+      process.exit(result.exitCode ?? 0);
+    }
+
     if (result.success === false) {
       if (result.exitCode) {
         process.exit(result.exitCode);
@@ -72,12 +80,13 @@ USAGE
 
 COMMANDS
   auth          Authentication (recover, login, status, logout)
-  trips         Trip management (list, create, get, rename, set-dates, delete)
+  trips         Trip management (list, create, get, rename, set-dates, validate, fetch, delete to Trash)
   sections      Itinerary sections (list, add, rename, delete, move)
-  places        Place management (search, add, enrich-add, check-status, update, delete, move)
+  places        Place management (search, resolve, add, enrich-add, check-status, update, delete, move)
   lodging       Native hotel cards and lodging entries (add, add-place)
   budget        Budget expenses (list, add, update, remove)
   calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh)
+  sync          Make managed sections match a desired document (plan, apply, restore)
   debug         Debugging utilities (fetch, inspect)
 
 GLOBAL OPTIONS

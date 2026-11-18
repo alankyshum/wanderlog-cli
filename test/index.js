@@ -10,3 +10,4 @@ import './models.test.mjs';
 import './places-check-status.test.mjs';
 import './places-enrich.test.mjs';
 import './token-store.test.mjs';
+import './sync.test.mjs';

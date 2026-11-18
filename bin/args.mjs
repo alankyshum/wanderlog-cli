@@ -3,7 +3,7 @@ import { UsageError } from '../src/errors.mjs';
 const BOOL_FLAGS = new Set([
   'help', 'version', 'json', 'verbose', 'quiet', 'no-open',
   'dry-run', 'yes', 'from-legacy', 'no-ai', 'with-photos', 'show-unknown', 'forbid-hotel-bookings', 'align-day-sections',
-  'force-unowned',
+  'force-unowned', 'redacted', 'check-dates',
 ]);
 
 const VALUE_FLAGS = new Set([
@@ -13,6 +13,8 @@ const VALUE_FLAGS = new Set([
   'alias', 'timezone', 'room', 'traveler-names', 'confirmation-number', 'section-id',
   'id', 'amount', 'currency', 'category', 'description', 'date', 'paid-by', 'split-with',
   'external-id', 'owner-tag', 'expect-external-id', 'expect-description',
+  'desired', 'last', 'snapshot', 'out-snapshot', 'out-report', 'expect-version', 'ack-drift', 'from-snapshot', 'target-lock',
+  'out', 'place-id',
 ]);
 
 const OPTION_KEYS = {
@@ -47,6 +49,14 @@ const OPTION_KEYS = {
   'expect-external-id': 'expectExternalId',
   'expect-description': 'expectDescription',
   'force-unowned': 'forceUnowned',
+  'check-dates': 'checkDates',
+  'out-snapshot': 'outSnapshot',
+  'out-report': 'outReport',
+  'expect-version': 'expectVersion',
+  'ack-drift': 'ackDrift',
+  'from-snapshot': 'fromSnapshot',
+  'target-lock': 'targetLock',
+  'place-id': 'placeId',
 };
 
 export function parseArgs(argv) {

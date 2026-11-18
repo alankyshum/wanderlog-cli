@@ -1,0 +1,31 @@
+{
+  "entries": {
+    "admin-checklist": {
+      "block": 300000004,
+      "hash": "synthetic",
+      "rows": {
+        "insurance": 400000001
+      }
+    },
+    "harbour-inn-stay": {
+      "block": 300000001,
+      "hash": "synthetic"
+    },
+    "tile-museum-visit": {
+      "block": 300000002,
+      "hash": "synthetic"
+    },
+    "tram-28-ride": {
+      "block": 300000003,
+      "hash": "synthetic"
+    }
+  },
+  "lock_version": 1,
+  "sections": {
+    "day:2027-05-11": 200000011,
+    "day:2027-05-12": 200000012,
+    "list:admin": 200000003,
+    "list:hotels": 200000002,
+    "list:notes": 200000001
+  }
+}

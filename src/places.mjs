@@ -362,6 +362,26 @@ function buildEnrichedPlaceBlock({ legacy, query, notes, startTime, endTime, ai,
   };
 }
 
+// `wlog places resolve`: Google place fields for plan.yaml, with no Wanderlog read or write.
+export async function resolvePlace({ query, placeId, googleKey, fetchImpl = globalThis.fetch } = {}) {
+  if (Boolean(query) === Boolean(placeId)) throw new UsageError('Usage: wlog places resolve (--query <text> | --place-id <id>) --json');
+  const apiKey = googleKey || process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new UsageError('Google Places API key required: set GOOGLE_MAPS_API_KEY or pass --google-key <key>');
+  const id = placeId || await gSearch(query, { apiKey, fetchImpl });
+  const legacy = toLegacy(await gDetails(id, { apiKey, fetchImpl }));
+  const { lat, lng } = legacy.geometry.location;
+  return {
+    ...(query ? { query } : {}),
+    place_id: legacy.place_id,
+    name: legacy.name,
+    formatted_address: legacy.formatted_address,
+    lat,
+    lng,
+    types: legacy.types,
+    plan_place: { google_id: legacy.place_id, address: legacy.formatted_address, lat, lng },
+  };
+}
+
 export async function gSearch(query, { apiKey = process.env.GOOGLE_MAPS_API_KEY, fetchImpl = globalThis.fetch } = {}) {
   if (!apiKey) throw new UsageError('Google Places API key required: set GOOGLE_MAPS_API_KEY or pass --google-key <key>');
   const response = await fetchImpl('https://places.googleapis.com/v1/places:searchText', {

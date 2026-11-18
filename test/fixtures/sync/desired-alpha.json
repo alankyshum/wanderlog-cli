@@ -1,0 +1,477 @@
+{
+  "desired_version": 1,
+  "end": "2027-05-13",
+  "folded": [
+    {
+      "date": "2027-05-10",
+      "into": "2027-05-11"
+    },
+    {
+      "date": "2027-05-13",
+      "into": "2027-05-12"
+    }
+  ],
+  "not_pushed": [
+    {
+      "entry": "cliff-hotel-stay",
+      "reason": "item cliff-hotel is DROPPED"
+    },
+    {
+      "entry": "cellar-visit",
+      "reason": "item cellar-tour is DROPPED"
+    },
+    {
+      "entry": "skipped-castle",
+      "reason": "dropped"
+    }
+  ],
+  "sections": [
+    {
+      "blocks": [],
+      "heading": "Notes",
+      "id": 200000001,
+      "key": "list:notes",
+      "mode": "placeList",
+      "new": false,
+      "text": {
+        "ops": [
+          {
+            "insert": "Emergency number is "
+          },
+          {
+            "attributes": {
+              "bold": true
+            },
+            "insert": "112"
+          },
+          {
+            "insert": ".\nKeep "
+          },
+          {
+            "attributes": {
+              "link": "https://example.org/rail"
+            },
+            "insert": "the rail site"
+          },
+          {
+            "insert": " open"
+          },
+          {
+            "attributes": {
+              "list": "bullet"
+            },
+            "insert": "\n"
+          }
+        ]
+      },
+      "type": "textOnly"
+    },
+    {
+      "blocks": [
+        {
+          "hotel": {
+            "checkIn": "2027-05-10",
+            "checkOut": "2027-05-12",
+            "confirmationNumber": "HB-10432"
+          },
+          "id": 300000001,
+          "key": "harbour-inn-stay",
+          "new": false,
+          "place": {
+            "formatted_address": "Rua do Arsenal 60, Lisbon",
+            "geometry": {
+              "location": {
+                "lat": 38.7078,
+                "lng": -9.1366
+              }
+            },
+            "name": "Harbour Inn",
+            "place_id": "synthetic-place-a5"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "CONFIRMED · HB-10432\nLate check-in is arranged.\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "hotel": {
+            "checkIn": "2027-05-12",
+            "checkOut": "2027-05-13",
+            "confirmationNumber": ""
+          },
+          "id": 729613134,
+          "key": "old-town-flat-stay",
+          "new": true,
+          "place": {
+            "formatted_address": "Rua das Flores 20, Porto",
+            "geometry": {
+              "location": {
+                "lat": 41.1412,
+                "lng": -8.6149
+              }
+            },
+            "name": "Old Town flat"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "TBD\n"
+              }
+            ]
+          },
+          "type": "place"
+        }
+      ],
+      "heading": "Hotels and lodging",
+      "id": 200000002,
+      "key": "list:hotels",
+      "mode": "placeList",
+      "new": false,
+      "type": "hotels"
+    },
+    {
+      "blocks": [
+        {
+          "id": 139733205,
+          "key": "aquarium",
+          "new": true,
+          "place": {
+            "formatted_address": "Esplanada Dom Carlos I, Lisbon",
+            "geometry": {
+              "location": {
+                "lat": 38.7634,
+                "lng": -9.0937
+              }
+            },
+            "name": "Oceanarium",
+            "place_id": "synthetic-place-a6"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "MAYBE\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "id": 939938317,
+          "key": "rooftop-bar",
+          "new": true,
+          "text": {
+            "ops": [
+              {
+                "insert": "IDEA — Rooftop bar\n"
+              }
+            ]
+          },
+          "type": "note"
+        }
+      ],
+      "heading": "Lisbon ideas",
+      "id": 467721092,
+      "key": "list:ideas",
+      "mode": "placeList",
+      "new": true,
+      "type": "normal"
+    },
+    {
+      "blocks": [
+        {
+          "id": 300000004,
+          "items": [
+            {
+              "checked": true,
+              "id": 400000001,
+              "key": "insurance",
+              "new": false,
+              "text": {
+                "ops": [
+                  {
+                    "insert": "Buy travel insurance\n"
+                  }
+                ]
+              }
+            },
+            {
+              "checked": false,
+              "id": 836869402,
+              "key": "rail-pass",
+              "new": true,
+              "text": {
+                "ops": [
+                  {
+                    "insert": "Order the rail pass\n"
+                  }
+                ]
+              }
+            },
+            {
+              "checked": false,
+              "id": 675563351,
+              "key": "adapters",
+              "new": true,
+              "text": {
+                "ops": [
+                  {
+                    "insert": "Pack two plug adapters [type F]\n"
+                  }
+                ]
+              }
+            }
+          ],
+          "key": "admin-checklist",
+          "new": false,
+          "title": "To do before the trip",
+          "type": "checklist"
+        }
+      ],
+      "heading": "Trip admin",
+      "id": 200000003,
+      "key": "list:admin",
+      "mode": "placeList",
+      "new": false,
+      "type": "normal"
+    },
+    {
+      "blocks": [
+        {
+          "id": 300000003,
+          "key": "tram-28-ride",
+          "new": false,
+          "place": {
+            "formatted_address": "Praça Martim Moniz, Lisbon",
+            "geometry": {
+              "location": {
+                "lat": 38.7158,
+                "lng": -9.1357
+              }
+            },
+            "name": "Tram 28 stop, Martim Moniz",
+            "place_id": "synthetic-place-a1"
+          },
+          "startTime": "09:30",
+          "text": {
+            "ops": [
+              {
+                "insert": "May 10 · PLANNED\nBoard at the first stop to get a seat.\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "id": 246948441,
+          "key": "alfama-viewpoint",
+          "new": true,
+          "text": {
+            "ops": [
+              {
+                "insert": "May 10 · PLANNED — Alfama viewpoint · 11:00–11:45\n"
+              }
+            ]
+          },
+          "type": "note"
+        },
+        {
+          "id": 300000002,
+          "key": "tile-museum-visit",
+          "new": false,
+          "place": {
+            "formatted_address": "Rua da Madre de Deus 4, Lisbon",
+            "geometry": {
+              "location": {
+                "lat": 38.7249,
+                "lng": -9.1136
+              }
+            },
+            "name": "National Tile Museum",
+            "place_id": "synthetic-place-a2"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "TBD · opens Apr 20 10:00 UTC+1\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "id": 886500473,
+          "key": "fado-night",
+          "new": true,
+          "text": {
+            "ops": [
+              {
+                "insert": "PAUSED — Fado house dinner · 20:00\n"
+              }
+            ]
+          },
+          "type": "note"
+        },
+        {
+          "endTime": "15:30",
+          "id": 913960813,
+          "key": "pastry-stop",
+          "new": true,
+          "place": {
+            "formatted_address": "Rua de Xabregas 12, Lisbon",
+            "geometry": {
+              "location": {
+                "lat": 38.7251,
+                "lng": -9.1129
+              }
+            },
+            "name": "Pastry counter near the museum"
+          },
+          "startTime": "15:00",
+          "text": {
+            "ops": [
+              {
+                "insert": "MAYBE\n"
+              },
+              {
+                "attributes": {
+                  "bold": true
+                },
+                "insert": "Cash only."
+              },
+              {
+                "insert": "\nTry the custard tart"
+              },
+              {
+                "attributes": {
+                  "list": "bullet"
+                },
+                "insert": "\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "id": 344004093,
+          "items": [
+            {
+              "checked": false,
+              "id": 473755752,
+              "key": "laundry",
+              "new": true,
+              "text": {
+                "ops": [
+                  {
+                    "insert": "Collect the laundry\n"
+                  }
+                ]
+              }
+            },
+            {
+              "checked": true,
+              "id": 813494956,
+              "key": "keys",
+              "new": true,
+              "text": {
+                "ops": [
+                  {
+                    "insert": "Return the keys\n"
+                  }
+                ]
+              }
+            }
+          ],
+          "key": "lisbon-packing",
+          "new": true,
+          "title": "Before leaving Lisbon",
+          "type": "checklist"
+        }
+      ],
+      "date": "2027-05-11",
+      "heading": "Museums and fado",
+      "id": 200000011,
+      "key": "day:2027-05-11",
+      "mode": "dayPlan",
+      "new": false,
+      "type": "normal"
+    },
+    {
+      "blocks": [
+        {
+          "id": 767212583,
+          "key": "porto-flight",
+          "new": true,
+          "text": {
+            "ops": [
+              {
+                "insert": "CONFIRMED · QX7T2M — Flight to Porto · 08:05 LIS to 09:00 OPO\n"
+              }
+            ]
+          },
+          "type": "note"
+        },
+        {
+          "id": 488300570,
+          "key": "ribeira-walk",
+          "new": true,
+          "place": {
+            "formatted_address": "Cais da Ribeira, Porto",
+            "geometry": {
+              "location": {
+                "lat": 41.1407,
+                "lng": -8.613
+              }
+            },
+            "name": "Ribeira riverfront",
+            "place_id": "synthetic-place-a3"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "IDEA\n"
+              }
+            ]
+          },
+          "type": "place"
+        },
+        {
+          "id": 952946331,
+          "key": "douro-cruise",
+          "new": true,
+          "place": {
+            "formatted_address": "Cais da Estiva, Porto",
+            "geometry": {
+              "location": {
+                "lat": 41.1403,
+                "lng": -8.611
+              }
+            },
+            "name": "Douro six-bridges cruise",
+            "place_id": "synthetic-place-a4"
+          },
+          "text": {
+            "ops": [
+              {
+                "insert": "May 13 · IN PROGRESS\n"
+              }
+            ]
+          },
+          "type": "place"
+        }
+      ],
+      "date": "2027-05-12",
+      "heading": "Fly to Porto",
+      "id": 200000012,
+      "key": "day:2027-05-12",
+      "mode": "dayPlan",
+      "new": false,
+      "type": "normal"
+    }
+  ],
+  "start": "2027-05-10",
+  "trip": "alpha-coast-trip"
+}

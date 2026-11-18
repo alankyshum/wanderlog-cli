@@ -52,7 +52,31 @@ export function validateTripPlanStructure(input = {}, opts = {}) {
     });
   });
 
-  return result(errors, warnings, { sectionCount: sections.length, blockCount });
+  const summary = { sectionCount: sections.length, blockCount };
+  if (opts.checkDates) Object.assign(summary, checkDaySections(tripPlan, sections, errors));
+  return result(errors, warnings, summary);
+}
+
+// One dayPlan section per trip day, in order, each dated startDate + i (Wanderlog shows "Your
+// itinerary is missing sections for the dates of your trip" otherwise).
+export function checkDaySections(tripPlan, sections, errors) {
+  const days = sections.map((section, index) => ({ section, index })).filter(x => x?.section?.mode === 'dayPlan');
+  const start = tripPlan.startDate;
+  const end = tripPlan.endDate;
+  if (!DATE_RE.test(String(start ?? '')) || !DATE_RE.test(String(end ?? ''))) {
+    errors.push('check-dates: trip has no startDate/endDate');
+    return { daySectionCount: days.length, tripDayCount: null };
+  }
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const tripDayCount = Math.round((Date.parse(`${end}T00:00:00Z`) - startMs) / 86400000) + 1;
+  if (!(tripDayCount >= 1)) errors.push(`check-dates: endDate ${end} precedes startDate ${start}`);
+  if (days.length !== tripDayCount) errors.push(`check-dates: ${days.length} dayPlan sections for ${tripDayCount} trip days`);
+  days.forEach(({ section, index }, i) => {
+    const want = new Date(startMs + i * 86400000).toISOString().slice(0, 10);
+    if (section.type !== 'normal') errors.push(`${sectionLabel(section, index)}: dayPlan section has type ${section.type}`);
+    if (section.date !== want) errors.push(`${sectionLabel(section, index)}: day ${i + 1} is dated ${section.date ?? 'null'}, expected ${want}`);
+  });
+  return { daySectionCount: days.length, tripDayCount };
 }
 
 export function assertTripPlanValid(input, opts = {}) {

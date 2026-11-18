@@ -2,7 +2,7 @@ import { CLIError, UsageError } from './errors.mjs';
 import { formatOutput } from './output.mjs';
 import { BUDGET_USAGE } from './budget.mjs';
 
-const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'lodging', 'calendar', 'debug', 'budget']);
+const COMMANDS = new Set(['auth', 'trips', 'sections', 'places', 'lodging', 'calendar', 'debug', 'budget', 'sync']);
 
 export function createCommandDispatcher(globalOptions = {}) {
   return {
@@ -18,6 +18,7 @@ export function createCommandDispatcher(globalOptions = {}) {
       if (command === 'calendar') return dispatchCalendar(globalOptions, subcommand, args);
       if (command === 'debug') return dispatchDebug(globalOptions, subcommand, args);
       if (command === 'budget') return dispatchBudget(globalOptions, subcommand, args);
+      if (command === 'sync') return dispatchSync(globalOptions, subcommand, args);
       return notImplemented();
     },
   };
@@ -67,14 +68,27 @@ async function dispatchTrips(opts, subcommand, args) {
     case 'set-dates':
       await requireAuth(opts);
       return ok(await trips.setDates(opts, args[0], args[1], args[2], { alignDaySections: Boolean(opts.alignDaySections) }));
-    case 'validate':
+    case 'validate': {
       await requireAuth(opts);
-      return ok(await trips.validateTrip(opts, args[0], { forbidHotelBookings: Boolean(opts.forbidHotelBookings) }));
+      const result = await trips.validateTrip(opts, args[0], { forbidHotelBookings: Boolean(opts.forbidHotelBookings), checkDates: Boolean(opts.checkDates) });
+      // With --check-dates the command is a fence: an invalid trip exits 1 after printing the result.
+      if (opts.checkDates && !result.valid) {
+        const rendered = formatOutput(result, opts);
+        if (rendered) console.log(rendered);
+        return { success: false, error: 'Trip structure invalid', exitCode: 1 };
+      }
+      return ok(result);
+    }
+    case 'fetch': {
+      await requireAuth(opts);
+      const sync = await import('./sync-cli.mjs');
+      return ok(await sync.fetchRedacted(opts, args[0]));
+    }
     case 'delete':
       await requireAuth(opts);
       return ok(await trips.deleteTrip(opts, args[0], { confirm: opts.confirm }));
     default:
-      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|validate|delete>');
+      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|delete>');
   }
 }
 
@@ -152,6 +166,7 @@ async function dispatchPlaces(opts, subcommand, args) {
     if (opts.format === 'json' || opts.json) return ok(result);
     return ok(places.formatCheckStatusReport(result));
   }
+  if (subcommand === 'resolve') return ok(await places.resolvePlace({ query: opts.query, placeId: opts.placeId, googleKey: opts.googleKey }));
   await requireAuth(opts);
   switch (subcommand) {
     case 'search':
@@ -188,7 +203,7 @@ async function dispatchPlaces(opts, subcommand, args) {
     case 'list':
       return ok(await places.listPlaces(opts, args[0]));
     default:
-      throw new UsageError('Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list>');
+      throw new UsageError('Usage: wlog places <search|resolve|add|enrich-add|check-status|update|delete|move|list>');
   }
 }
 
@@ -236,6 +251,21 @@ async function dispatchBudget(opts, subcommand, args) {
   return ok(await budget.runBudgetCommand(opts, subcommand, args));
 }
 
+async function dispatchSync(opts, subcommand, args) {
+  const sync = await import('./sync-cli.mjs');
+  // plan --snapshot is offline; everything else needs a session. A missing session is the
+  // contract's exit 4 (fetch or auth failure), reported as JSON like every other outcome.
+  if (!(subcommand === 'plan' && opts.snapshot) && ['plan', 'apply', 'restore'].includes(subcommand)) {
+    const { requireAuth } = await import('./auth.mjs');
+    try {
+      await requireAuth(opts);
+    } catch (err) {
+      return { success: true, ...sync.failure(4, `${err?.message ?? err}; run wlog auth recover, then re-run once`) };
+    }
+  }
+  return { success: true, ...(await sync.runSync(opts, subcommand, args)) };
+}
+
 function ok(data) {
   return { success: true, data };
 }
@@ -279,7 +309,17 @@ AUTH LOGIN
 FALLBACK
   wlog auth import-cookie --cookie 'connect.sid=...'
 `,
-    trips: 'Usage: wlog trips <list|get|create|rename|set-dates|validate|delete> [tripKey] [options]',
+    trips: `Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|delete> [tripKey] [options]
+
+  validate <tripKey> [--check-dates] [--forbid-hotel-bookings] [--json]
+      Structure check. --check-dates also requires one dayPlan section per trip day, dated
+      startDate + i in order; with --check-dates an invalid trip exits 1.
+  fetch <tripKey> --redacted --out <file>
+      Writes the trip document to a private (0600) file with editKey, viewKey, suggestKey,
+      journalKey and every TripPlanKeys key replaced by [REDACTED].
+  delete <tripKey> --confirm <tripKey>
+      Moves the trip to Wanderlog's Trash; it is not deleted permanently. Permanent deletion is
+      only in the web UI (Trash, then Delete permanently).`,
     sections: 'Usage: wlog sections <list|add|rename|add-note|update-note|delete|move> [tripKey] [options]\n  add-note <tripKey> <sectionId> --notes <text>\n  update-note <tripKey> <sectionId> <blockIndex> --notes <text> --expected-notes <old text> --confirm <blockId>',
     places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
 
@@ -314,6 +354,22 @@ Fallback: wlog lodging add-place <tripKey> <daySectionId> adds lodging as a
 normal day-plan place block when native hotel cards are not desired.`,
     calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
+    sync: `Usage: wlog sync <plan|apply|restore> <tripKey> [options] --json
+
+  plan <tripKey> [--desired F] [--last LOCK] [--snapshot S] [--out-snapshot P] [--out-report R]
+      Read-only. Fetches (or reads --snapshot), normalises, diffs the desired document by id,
+      classifies drift against the lock (one fingerprint per change) and lists refusals.
+      Writes P (redacted fetch) and R (drift report, with --last). Exit 0, or 3 on a refusal.
+  apply <tripKey> --desired F --last LOCK --expect-version N [--ack-drift R] [--out-snapshot P]
+      Exit 8 if overallVersion != N, 3 on a refusal, 10 on drift whose fingerprint is not in R.
+      Otherwise one guarded batch, then a re-fetch: managed sections must equal desired and
+      overallVersion must be N + 1 (else exit 7, never retried). A compare refusal is exit 5.
+  restore <tripKey> --from-snapshot S --last LOCK --target-lock T --expect-version N [--ack-drift R] [--out-snapshot P]
+      Puts the sections managed in LOCK or T back to their content in S through the same gates.
+
+  Every outcome is one JSON document on stdout. Exit codes: 0 done, 2 bad input, 3 refused,
+  4 fetch or auth failure, 5 batch refused by the server, 7 uncertain, 8 version changed,
+  10 unacknowledged drift.`,
     budget: BUDGET_USAGE,
   };
   return help[command];

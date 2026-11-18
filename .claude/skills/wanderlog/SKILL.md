@@ -21,14 +21,17 @@ Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documen
 | `auth import-cookie` / `auth token-path` | Legacy manual import or print the token path; use `auth recover` to avoid exposing a cookie in argv. |
 | `trips list` / `trips get <tripKey>` | Find and inspect trips. |
 | `trips create "<destination>" [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD]` / `trips rename <tripKey> "<title>"` | Create from a geo-resolvable destination, then title it. |
-| `trips set-dates <tripKey> <startDate> <endDate>` / `trips validate <tripKey> [--json] [--forbid-hotel-bookings]` | Change dates or validate structure. |
-| `trips delete <tripKey> --confirm <tripKey>` | Delete a trip. |
+| `trips set-dates <tripKey> <startDate> <endDate>` / `trips validate <tripKey> [--json] [--forbid-hotel-bookings] [--check-dates]` | Change dates or validate structure; `--check-dates` also requires one dayPlan section per trip day, dated in order, and exits 1 when invalid. |
+| `trips fetch <tripKey> --redacted --out <file>` | Private (0600) snapshot with every access key (`editKey`, `viewKey`, `suggestKey`, `journalKey`, `TripPlanKeys[].key`) redacted. |
+| `trips delete <tripKey> --confirm <tripKey>` | Move a trip to Wanderlog's Trash (it then reads as `tripPlanNotFound`). Permanent deletion is only in the web UI: Trash, Delete permanently. |
+| `sync plan\|apply\|restore <tripKey> ... --json` | Trip-file sync: read-only diff and drift capture, one guarded verified batch, rollback from a snapshot. See README “Trip-file sync” for flags and exit codes. |
 | `sections list <tripKey>` / `sections add <tripKey> "<heading>" [--mode dayPlan|placeList|textOnly] [--index <n>]` | Inspect or add sections. |
 | `sections rename <tripKey> <sectionId> "<heading>"` / `sections move <tripKey> <sectionId> <toIndex>` | Rename or reorder a section. |
 | `sections add-note <tripKey> <sectionId> --notes "..."` | Add a verified note to a normal day or list section. |
 | `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` | Replace an exact unformatted note with ID and old-text guards; the server compares the section heading/date, block type and old text in the same batch (exit 8 when the note moved or changed: nothing written); re-fetch verifies (exit 7: list before retrying). |
 | `sections delete <tripKey> <sectionId> --confirm <sectionId>` | Delete a section. |
 | `places search "<query>"` / `places list <tripKey>` | Search or list normalized place blocks. |
+| `places resolve (--query "..." \| --place-id <id>) [--google-key <key>] --json` | Google place fields for `plan.yaml` (`plan_place: {google_id, address, lat, lng}`); no Wanderlog read or write. |
 | `places add <tripKey> <sectionId> --name "..." --lat <lat> --lng <lng> --address "..." [--notes "..."] [--start HH:MM] [--end HH:MM] [--no-ai]` | Add a manual place only when Google cannot resolve it. |
 | `places update <tripKey> <sectionId> <blockIndex> [...]` / `places move <tripKey> <fromSectionId> <blockIndex> <toSectionId> [--to-index <n>]` | Update or move a place. |
 | `places delete <tripKey> <sectionId> <blockIndex> --confirm <blockIndex>` | Delete a place. |
@@ -42,7 +45,7 @@ Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documen
 | `budget update <tripKey> --id <expenseId> (--expect-external-id <id> \| --expect-description "<current text>") [fields] [--force-unowned] [--dry-run]` | Replace one expense using its exact old object; keeps the ownership tag; re-fetch verifies. |
 | `budget remove <tripKey> --id <expenseId> (--expect-external-id <id> \| --expect-description "<current text>") [--force-unowned] [--dry-run]` | Delete one expense using its exact old object; re-fetch verifies. |
 
-Use `wlog --help` for the complete flags. `trips create` takes a geo-resolvable destination, not a title; rename afterward. A 500 `TypeError: Cannot read properties of undefined (reading 'length')` from a title is a client-side input error, not a server outage.
+Use `wlog --help` for the complete flags. `trips create` takes a geo-resolvable destination, not a title; rename afterward. `trips create` now sends the web app's body; the old `TypeError: Cannot read properties of undefined (reading 'length')` came from the CLI's own request body (missing `initialMapsPlaceIds`), and a `success:false` answer now fails loudly instead of printing nulls.
 
 ## Date sections: operational rules
 
@@ -50,7 +53,7 @@ Day sections can carry an explicit `date`; others are positional. The k-th dayPl
 
 Canonical flow: `sections list` → rename existing dayPlan IDs in date order → `places enrich-add` into those same IDs. `trips set-dates ... --align-day-sections` preserves existing day IDs, shifts their explicit dates and appends missing days; it refuses shrinking or an inconsistent original layout. Plain `set-dates` only changes trip dates. `validate` checks structure/render safety, not date alignment: assert count equals day count and anchor verification to the original section IDs, never offsets computed after rearrangement.
 
-The UI repair button appends one missing section per day through `POST /api/tripPlans/<key>/applyOps`, with `{"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}` and response `{"success":true}`. Afterward rename, move blocks, and delete only stray non-date themed sections. The CLI gap is tracked in README: proposed `trips validate --check-dates` and `sections ensure-days <tripKey>`.
+The UI repair button appends one missing section per day through `POST /api/tripPlans/<key>/applyOps`, with `{"op":"insert","path":["sections",<idx>],"value":{"id":<9-digit int>,"heading":"","mode":"dayPlan","type":"normal","blocks":[]}}` and response `{"success":true}`. Afterward rename, move blocks, and delete only stray non-date themed sections. `trips validate --check-dates` detects the gap; `sections ensure-days <tripKey>` is still a README TODO.
 
 ## Enrichment, lodging, and notes
 
