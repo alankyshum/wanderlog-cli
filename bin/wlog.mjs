@@ -85,7 +85,7 @@ COMMANDS
   places        Place management (search, resolve, add, enrich-add, check-status, update, delete, move)
   lodging       Native hotel cards and lodging entries (add, add-place)
   budget        Budget expenses (list, add, update, remove)
-  calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh)
+  calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh, render, publish)
   sync          Make managed sections match a desired document (plan, apply, restore)
   debug         Debugging utilities (fetch, inspect)
 
