@@ -45,7 +45,7 @@ export async function refresh(opts = {}) {
   return adminRequest(opts, '/refresh', { method: 'POST' });
 }
 
-async function adminRequest(opts = {}, path, { method = 'GET', body } = {}) {
+export async function adminRequest(opts = {}, path, { method = 'GET', body } = {}) {
   const token = process.env.WANDERLOG_CALENDAR_ADMIN_TOKEN;
   if (!token) throw new Error('Set WANDERLOG_CALENDAR_ADMIN_TOKEN env var (matches Worker secret ADMIN_TOKEN)');
 
@@ -92,7 +92,7 @@ async function tryGetTrip(opts, tripKey) {
   }
 }
 
-async function resolveSubscriptionPlanId(opts, input) {
+export async function resolveSubscriptionPlanId(opts, input) {
   const data = await listSubscriptions(opts);
   const subscriptions = Array.isArray(data?.subscriptions) ? data.subscriptions : [];
   const matches = subscriptions.filter(subscription => subscriptionMatches(subscription, input));

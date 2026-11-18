@@ -5,6 +5,7 @@ import './browser.test.mjs';
 import './client.test.mjs';
 import './commands.test.mjs';
 import './calendar.test.mjs';
+import './calendar-file.test.mjs';
 import './ics-generator.test.mjs';
 import './models.test.mjs';
 import './places-check-status.test.mjs';

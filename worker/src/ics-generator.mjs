@@ -9,10 +9,12 @@ const TEXT_ENCODER = new TextEncoder();
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^(\d{2}):(\d{2})$/;
 
-export function generateIcs({ trips = [], calendarVersion = '0.1.0', subscriptionVersion = 0, includeAiPrefix = true, ownerName = 'Wanderlog' } = {}) {
+// extraEvents: pre-built events appended after the trips' events (file-sourced
+// subscriptions, see file-events.mjs). dtstamp: fixed DTSTAMP for reproducible output.
+export function generateIcs({ trips = [], extraEvents = [], dtstamp = null, calendarVersion = '0.1.0', subscriptionVersion = 0, includeAiPrefix = true, ownerName = 'Wanderlog' } = {}) {
   void includeAiPrefix;
-  const dtstamp = formatDateTime(new Date());
-  const events = trips.flatMap(tripToEvents);
+  dtstamp = dtstamp ?? formatDateTime(new Date());
+  const events = [...trips.flatMap(tripToEvents), ...extraEvents];
   const lines = [
     'BEGIN:VCALENDAR',
     'PRODID:' + PRODID,

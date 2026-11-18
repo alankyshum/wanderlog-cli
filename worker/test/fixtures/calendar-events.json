@@ -1,0 +1,33 @@
+{
+  "schema": "wanderlog-calendar-events/1",
+  "trip_key": "FIXTRIP1",
+  "title": "Fixture Coast Trip",
+  "events": [
+    {
+      "uid": "tf-FIXTRIP1-day-2026-12-03",
+      "title": "Day 1 — Old town, coast walk",
+      "all_day": true,
+      "date": "2026-12-03",
+      "description": "1. Fixture Cafe\n2. Fixture Coastal Walk; sunset"
+    },
+    {
+      "uid": "tf-FIXTRIP1-e-cafe",
+      "title": "Breakfast at Fixture Cafe",
+      "all_day": false,
+      "start": "2026-12-03T09:00",
+      "end": "2026-12-03T10:00",
+      "tz": "Asia/Seoul",
+      "location": { "name": "Fixture Cafe", "address": "1 Test St, Fixture City", "lat": 33.5, "lng": 126.5 },
+      "description": "Booked, confirmation in trip.yaml"
+    },
+    {
+      "uid": "tf-FIXTRIP1-e-night-ferry",
+      "title": "Night ferry with a deliberately long title that will need folding at seventy-five octets",
+      "all_day": false,
+      "start": "2026-12-03T23:30",
+      "end": "2026-12-04T06:15",
+      "tz": "Asia/Seoul",
+      "location": { "name": "Fixture Port" }
+    }
+  ]
+}
