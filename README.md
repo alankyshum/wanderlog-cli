@@ -123,7 +123,7 @@ ai-attribution.mjs,bulk.mjs,errors.mjs,output.mjs}
 test/                         # offline node:test suite and fixtures
 ```
 
-`client.mjs` owns the authenticated HTTP client; command modules are network-isolated behind it. The Worker lives at `public/workers/wanderlog-calendar/` and serves `https://calendar.alanshum.dev/wanderlog`. It vendors copies of `src/ics-generator.mjs` and `src/models.mjs`; keep those copies synchronized with `worker/src/` when ICS behavior changes. `calendar.mjs` uses the Worker admin API for subscriptions, refresh, and previews.
+`client.mjs` owns the authenticated HTTP client; command modules are network-isolated behind it. The Worker lives at `worker/` and serves `https://calendar.alanshum.dev/wanderlog`. It vendors copies of `src/ics-generator.mjs` and `src/models.mjs`; keep those copies synchronized with `worker/src/` when ICS behavior changes. `calendar.mjs` uses the Worker admin API for subscriptions, refresh, and previews.
 
 ### Where to add commands
 

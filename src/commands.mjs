@@ -210,8 +210,16 @@ async function dispatchCalendar(opts, subcommand, args) {
     }
     case 'refresh':
       return ok(await calendar.refresh(opts));
+    case 'render': {
+      const ics = await (await import('./calendar-file.mjs')).render(opts);
+      if (opts.format === 'json') return ok({ ics });
+      process.stdout.write(ics);
+      return { success: true };
+    }
+    case 'publish':
+      return ok(await (await import('./calendar-file.mjs')).publish(opts, args[0]));
     default:
-      throw new UsageError('Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh>');
+      throw new UsageError('Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh|render|publish>');
   }
 }
 
@@ -312,7 +320,7 @@ Options: --query, --name, --check-in, --check-out, --room, --traveler-names,
 
 Fallback: wlog lodging add-place <tripKey> <daySectionId> adds lodging as a
 normal day-plan place block when native hotel cards are not desired.`,
-    calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh> [options]',
+    calendar: 'Usage: wlog calendar <subscribe|unsubscribe|list|url|preview|refresh|render|publish> [options]\n  render --events F               print the ICS for a file events document (docs/calendar-events.md)\n  publish <trip> --events F [--json]  PUT the events to the Worker, then verify the feed equals the local render',
     debug: 'Usage: wlog debug <fetch|cleanup-ai> <tripKey>',
     budget: BUDGET_USAGE,
   };

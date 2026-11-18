@@ -4,6 +4,7 @@ import {
   handleListSubscriptions,
   handlePatchSubscription,
   handlePreviewIcs,
+  handlePutEvents,
   handlePublicIcs,
   handleRefresh,
   jsonResponse,
@@ -31,6 +32,9 @@ export default {
     if (path === '/wanderlog/api/v1/subscriptions' && method === 'POST') return handleAddSubscription(request, env);
     if (path === '/wanderlog/api/v1/refresh' && method === 'POST') return handleRefresh(request, env);
     if (path === '/wanderlog/api/v1/preview.ics' && method === 'GET') return handlePreviewIcs(request, env);
+
+    const eventsMatch = path.match(/^\/wanderlog\/api\/v1\/subscriptions\/([^/]+)\/events$/);
+    if (eventsMatch && method === 'PUT') return handlePutEvents(request, env, decodeURIComponent(eventsMatch[1]));
 
     const match = path.match(/^\/wanderlog\/api\/v1\/subscriptions\/([^/]+)$/);
     if (match && method === 'DELETE') return handleDeleteSubscription(request, env, decodeURIComponent(match[1]));
