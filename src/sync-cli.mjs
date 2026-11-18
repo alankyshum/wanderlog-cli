@@ -92,8 +92,11 @@ export async function completeAirlines(opts, desired) {
   const airlines = airlineList(data);
   for (const b of partial) {
     const given = b.flightInfo.airline;
-    const hits = airlines.filter(a => a.iata === given.iata);
-    if (hits.length !== 1) throw new SyncExit(EXIT.usage, `--desired: flight ${b.key} airline ${given.iata} matches ${hits.length} Wanderlog airlines; give icao, name and localizedName`);
+    // One IATA code can name several airlines (AS: Alaska Airlines ASA and Alpha Sky JAG); a given
+    // ICAO code picks among them.
+    let hits = airlines.filter(a => a.iata === given.iata);
+    if (hits.length > 1 && given.icao != null) hits = hits.filter(a => a.icao === given.icao);
+    if (hits.length !== 1) throw new SyncExit(EXIT.usage, `--desired: flight ${b.key} airline ${given.iata}${given.icao != null ? `/${given.icao}` : ''} matches ${hits.length} Wanderlog airlines; give icao, name and localizedName`);
     for (const k of AIRLINE_FIELDS) if (given[k] != null && given[k] !== hits[0][k]) {
       throw new SyncExit(EXIT.usage, `--desired: flight ${b.key} airline ${k} ${JSON.stringify(given[k])} differs from Wanderlog's ${JSON.stringify(hits[0][k])}`);
     }

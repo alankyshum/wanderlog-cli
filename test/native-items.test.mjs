@@ -247,6 +247,13 @@ test('an airline given by IATA code alone is completed from Wanderlog\'s airline
   const jl = desiredDoc();
   jl.sections[0].blocks[0].flightInfo.airline = { iata: 'JL' };
   await assert.rejects(() => completeAirlines(opts, jl), err => err.exitCode === EXIT.usage && /JL matches 2 Wanderlog airlines/.test(err.message));
+  const jal = desiredDoc();
+  jal.sections[0].blocks[0].flightInfo.airline = { iata: 'JL', icao: 'JAL', name: 'Japan Airlines' };
+  await completeAirlines(opts, jal);
+  assert.deepEqual(jal.sections[0].blocks[0].flightInfo.airline, { iata: 'JL', icao: 'JAL', name: 'Japan Airlines', localizedName: 'Japan Airlines' });
+  const nobody = desiredDoc();
+  nobody.sections[0].blocks[0].flightInfo.airline = { iata: 'JL', icao: 'XXX' };
+  await assert.rejects(() => completeAirlines(opts, nobody), /JL\/XXX matches 0 Wanderlog airlines/);
   const wrong = desiredDoc();
   wrong.sections[0].blocks[0].flightInfo.airline = { iata: 'CX', name: 'Dragonair' };
   await assert.rejects(() => completeAirlines(opts, wrong), /name "Dragonair" differs from Wanderlog's "Cathay Pacific"/);
