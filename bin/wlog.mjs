@@ -80,9 +80,9 @@ USAGE
 
 COMMANDS
   auth          Authentication (recover, login, status, logout)
-  trips         Trip management (list, create, get, rename, set-dates, validate, fetch, delete to Trash)
+  trips         Trip management (list, create, get, rename, set-dates, validate, fetch, travel, delete to Trash)
   sections      Itinerary sections (list, add, rename, delete, move)
-  places        Place management (search, resolve, add, enrich-add, check-status, update, delete, move)
+  places        Place management (search, resolve, travel, add, enrich-add, check-status, update, delete, move)
   lodging       Native hotel cards and lodging entries (add, add-place)
   budget        Budget expenses (list, add, update, remove)
   calendar      Calendar integration (subscribe, unsubscribe, list, url, preview, refresh, render, publish)

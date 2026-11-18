@@ -12,7 +12,6 @@ import { runSync, syncApply, syncPlan, syncRestore, fetchRedacted } from '../src
 import { validateTripPlanStructure } from '../src/validation.mjs';
 import { parseArgs } from '../bin/args.mjs';
 import { createCommandDispatcher } from '../src/commands.mjs';
-import { resolvePlace } from '../src/places.mjs';
 import { deleteTrip } from '../src/trips.mjs';
 
 const FIX = new URL('./fixtures/sync/', import.meta.url);
@@ -660,22 +659,6 @@ test('trips delete reports that the trip went to Trash', async t => {
   const result = await deleteTrip(opts, TRIP, { confirm: TRIP });
   assert.equal(result.trashed, true);
   assert.match(result.note, /Trash/);
-});
-
-test('places resolve returns plan.yaml place fields without touching Wanderlog', async () => {
-  const calls = [];
-  const fetchImpl = async (url, init = {}) => {
-    calls.push(String(url));
-    if (String(url).includes(':searchText')) return json({ places: [{ id: 'gid-1' }] });
-    return json({ id: 'gid-1', displayName: { text: 'Harbour Inn' }, formattedAddress: 'Rua 60', location: { latitude: 38.7, longitude: -9.1 }, types: ['lodging'] });
-  };
-  const byQuery = await resolvePlace({ query: 'harbour inn', googleKey: 'k', fetchImpl });
-  assert.deepEqual(byQuery, { query: 'harbour inn', place_id: 'gid-1', name: 'Harbour Inn', formatted_address: 'Rua 60', lat: 38.7, lng: -9.1, types: ['lodging'], plan_place: { google_id: 'gid-1', address: 'Rua 60', lat: 38.7, lng: -9.1 } });
-  const byId = await resolvePlace({ placeId: 'gid-1', googleKey: 'k', fetchImpl });
-  assert.equal(byId.place_id, 'gid-1');
-  assert.ok(calls.every(u => u.startsWith('https://places.googleapis.com/')));
-  await assert.rejects(() => resolvePlace({ googleKey: 'k', fetchImpl }), /--query/);
-  await assert.rejects(() => resolvePlace({ query: 'a', placeId: 'b', googleKey: 'k', fetchImpl }), /--query/);
 });
 
 test('trips create sends the web app body and fails loudly on a server error', async t => {

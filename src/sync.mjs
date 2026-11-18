@@ -7,7 +7,8 @@
 //
 // Write shape (measured on a throwaway trip, branch trip-sync/spike): one applyOps batch per run.
 // It starts with text0 compares on the pre-state (heading, day date, one identity string per
-// current block: place name, first text op, checklist title), then replaces whole `blocks`
+// current block: place name, first text op, checklist title, a flight's airport/airline/date,
+// a train's or car's first place name and date), then replaces whole `blocks`
 // arrays with od/oi (ids kept, unmodelled fields carried), sets headings and Notes text, deletes
 // and inserts list sections. Wanderlog raises `overallVersion` by exactly 1 per batch.
 //
@@ -21,8 +22,23 @@ export const SECRET_FIELDS = ['editKey', 'viewKey', 'suggestKey', 'journalKey'];
 export const REDACTED = '[REDACTED]';
 const PLACE_FIELDS = ['name', 'formatted_address', 'place_id'];
 const MAX_MISSING = 3;
-const BLOCK_TYPES = ['place', 'note', 'checklist'];
-const SECTION_SHAPES = new Set(['normal/dayPlan', 'normal/placeList', 'textOnly/placeList', 'hotels/placeList']);
+const PLAN_BLOCKS = ['place', 'note', 'checklist'];
+// Native reservation sections hold one block type each (spike S7 on a throwaway trip).
+const RESERVATION_BLOCKS = { flights: ['flight'], transit: ['train'], rentalCars: ['rentalCar'] };
+export const BLOCK_TYPES = [...PLAN_BLOCKS, 'flight', 'train', 'rentalCar'];
+export const blockTypesFor = sectionType => RESERVATION_BLOCKS[sectionType] ?? PLAN_BLOCKS;
+const RESERVATION_TYPES = new Set(Object.values(RESERVATION_BLOCKS).flat());
+// A place card's travelMode is the mode of the leg that arrives at it (null: Wanderlog's default).
+export const TRAVEL_MODES = ['driving', 'walking', 'transit'];
+// The web app's native list sections, one per trip, in the order it shows them after Notes (rank).
+// Hotels: the December trip and `lodging add`; the others: spike S7 (UI-created sections).
+export const NATIVE_SECTIONS = {
+  flights: { rank: 1, placeMarkerColor: '#3498db', placeMarkerIcon: 'plane' },
+  hotels: { rank: 2, placeMarkerColor: '#e67e22', placeMarkerIcon: 'bed' },
+  rentalCars: { rank: 3, placeMarkerColor: '#38a4a6', placeMarkerIcon: 'car' },
+  transit: { rank: 4, placeMarkerColor: '#17b978', placeMarkerIcon: 'subway' },
+};
+const SECTION_SHAPES = new Set(['normal/dayPlan', 'normal/placeList', 'textOnly/placeList', ...Object.keys(NATIVE_SECTIONS).map(t => `${t}/placeList`)]);
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,22 +121,59 @@ export function textOf(text) {
 
 const num = value => Number(value);
 
+// A Google place in normal form: name, address, location and (when known) the Google id.
+export function normPlace(place) {
+  const p = place && typeof place === 'object' ? place : {};
+  const location = p.geometry?.location || {};
+  const out = {
+    name: p.name || '',
+    formatted_address: p.formatted_address || '',
+    geometry: { location: { lat: num(location.lat ?? 0), lng: num(location.lng ?? 0) } },
+  };
+  if (p.place_id) out.place_id = p.place_id;
+  return out;
+}
+
+// A reservation endpoint's date and time: null or empty is absent.
+function when(raw, out) {
+  for (const name of ['date', 'time']) if (raw?.[name]) out[name] = raw[name];
+  return out;
+}
+
+function normAirline(airline) {
+  const a = airline && typeof airline === 'object' ? airline : {};
+  return { iata: a.iata ?? null, icao: a.icao ?? null, name: a.name ?? null, localizedName: a.localizedName ?? null };
+}
+
 export function normBlock(raw) {
   const kind = raw.type;
   const out = { id: Number(raw.id), type: kind };
   if (kind === 'place') {
-    const place = raw.place || {};
-    const location = place.geometry?.location || {};
-    out.place = {
-      name: place.name || '',
-      formatted_address: place.formatted_address || '',
-      geometry: { location: { lat: num(location.lat ?? 0), lng: num(location.lng ?? 0) } },
-    };
-    if (place.place_id) out.place.place_id = place.place_id;
+    out.place = normPlace(raw.place);
     out.text = textOf(raw.text);
     for (const name of ['startTime', 'endTime']) if (raw[name]) out[name] = raw[name];
+    if (raw.travelMode != null) out.travelMode = raw.travelMode;
     if (raw.hotel && typeof raw.hotel === 'object' && !Array.isArray(raw.hotel)) {
       out.hotel = { checkIn: raw.hotel.checkIn ?? null, checkOut: raw.hotel.checkOut ?? null, confirmationNumber: raw.hotel.confirmationNumber || '' };
+    }
+  } else if (kind === 'flight') {
+    out.text = textOf(raw.text);
+    out.confirmationNumber = raw.confirmationNumber || '';
+    out.flightInfo = { airline: normAirline(raw.flightInfo?.airline), number: raw.flightInfo?.number ?? null };
+    for (const side of ['depart', 'arrive']) {
+      const airport = raw[side]?.airport || {};
+      out[side] = when(raw[side], { airport: { iata: airport.iata ?? null, name: airport.name || '', cityName: airport.cityName || '', googlePlace: normPlace(airport.googlePlace) } });
+    }
+  } else if (kind === 'train') {
+    out.text = textOf(raw.text);
+    out.confirmationNumber = raw.confirmationNumber || '';
+    out.carrier = raw.carrier || '';
+    for (const side of ['depart', 'arrive']) out[side] = when(raw[side], { place: normPlace(raw[side]?.place) });
+  } else if (kind === 'rentalCar') {
+    out.text = textOf(raw.text);
+    if (raw.confirmationNumber) out.confirmationNumber = raw.confirmationNumber;
+    for (const side of ['pickUp', 'dropOff']) {
+      out[side] = when(raw[side], { airportOrGeo: clone(raw[side]?.airportOrGeo ?? null), place: normPlace(raw[side]?.place) });
     }
   } else if (kind === 'note') {
     out.text = textOf(raw.text);
@@ -135,6 +188,9 @@ export function normBlock(raw) {
 export function strip(block) {
   const out = {};
   for (const [k, v] of Object.entries(block)) if (k !== 'key' && k !== 'new') out[k] = clone(v);
+  // Reservation blocks: the desired document is the normal form, normalised the same way.
+  if (RESERVATION_TYPES.has(out.type)) return normBlock(out);
+  if (out.type === 'place' && out.travelMode == null) delete out.travelMode;
   if (out.items) out.items = out.items.map(row => Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'key' && k !== 'new').map(([k, v]) => [k, k === 'text' ? textOf(v) : v])));
   if (out.place) {
     const location = out.place.geometry.location;
@@ -194,7 +250,7 @@ export function resolveDesired(doc, desired) {
     if (s.id == null && !s.new) {
       let found = [];
       if (s.key.startsWith('day:')) found = sections.filter(x => x.mode === 'dayPlan' && x.date === s.key.slice(4));
-      else if (s.type === 'textOnly' || s.type === 'hotels') found = sections.filter(x => x.type === s.type && x.mode === s.mode);
+      else if (s.type === 'textOnly' || NATIVE_SECTIONS[s.type]) found = sections.filter(x => x.type === s.type && x.mode === s.mode);
       if (found.length === 1) {
         s.id = Number(found[0].id);
         resolved[s.key] = s.id;
@@ -210,9 +266,10 @@ export function resolveDesired(doc, desired) {
       } else {
         refusals.push(`new section ${s.key} id ${s.id} is already used in Wanderlog`);
       }
-    } else if (s.new && s.type === 'hotels') {
-      // A trip has at most one Hotels section: an existing one takes the new one's place.
-      const found = sections.filter(x => x.type === 'hotels' && x.mode === s.mode);
+    } else if (s.new && NATIVE_SECTIONS[s.type]) {
+      // A trip has at most one Hotels (Flights, Transit, Rental cars) section: an existing one
+      // takes the new one's place.
+      const found = sections.filter(x => x.type === s.type && x.mode === s.mode);
       if (found.length === 1) {
         s.id = Number(found[0].id);
         s.new = false;
@@ -306,7 +363,7 @@ function analyseCore(doc, desired, lockIn) {
     if (!section) continue;
     if (!SECTION_SHAPES.has(`${section.type}/${section.mode}`)) refusals.push(`unknown section shape ${section.type}/${section.mode} for managed section ${sid}`);
     for (const block of section.blocks || []) {
-      if (!BLOCK_TYPES.includes(block.type)) {
+      if (!blockTypesFor(section.type).includes(block.type)) {
         refusals.push(`unknown block type ${pyRepr(block.type)} in managed section ${sid}`);
         continue;
       }
@@ -427,7 +484,29 @@ function analyseCore(doc, desired, lockIn) {
 export function nativeBlock(desiredBlock, owner) {
   const out = { id: desiredBlock.id, type: desiredBlock.type, addedBy: { type: 'user', userId: owner }, attachments: [] };
   if (desiredBlock.type === 'place') Object.assign(out, { imageSize: 'small', upvotedBy: [], travelMode: null, imageKeys: [] });
+  if (desiredBlock.type === 'flight') out.travelerNames = [];
   return out;
+}
+
+// A Google place written into a block: modelled fields from desired; the old place's other
+// fields are kept only while its Google id is unchanged.
+function writePlace(oldPlace, want, defaultTypes) {
+  let place = oldPlace && typeof oldPlace === 'object' && !Array.isArray(oldPlace) ? clone(oldPlace) : {};
+  if ((place.place_id ?? null) !== (want.place_id ?? null)) place = {};
+  place = Object.fromEntries(Object.entries(place).filter(([k]) => !PLACE_FIELDS.includes(k)));
+  for (const [k, v] of Object.entries(want)) if (k !== 'geometry') place[k] = clone(v);
+  place.geometry = { ...(place.geometry || {}), location: clone(want.geometry.location) };
+  if (!('place_id' in place)) place.place_id = null;
+  if (!Array.isArray(place.types)) place.types = defaultTypes;
+  return place;
+}
+
+const objectOr = value => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+// Reservation endpoints (flight depart/arrive, train depart/arrive, car pickUp/dropOff): every
+// endpoint field the web app writes is present, null when unset.
+function writeEndpoint(old, want, extra) {
+  return { ...objectOr(old), ...extra, date: want.date ?? null, time: want.time ?? null };
 }
 
 // Fills bookkeeping fields a rewritten block lacks (older CLI blocks have no imageKeys), so no
@@ -441,6 +520,7 @@ function fillRequired(raw, owner) {
     if (!('travelMode' in raw)) raw.travelMode = null;
     if (!Array.isArray(raw.imageKeys)) raw.imageKeys = [];
   }
+  if (raw.type === 'flight' && !Array.isArray(raw.travelerNames)) raw.travelerNames = [];
   return raw;
 }
 
@@ -450,24 +530,50 @@ export function writeBlock(d, old, owner) {
   const raw = old && old.type === d.type ? clone(old) : nativeBlock(d, owner);
   raw.id = d.id;
   if (d.type === 'place') {
-    let place = raw.place && typeof raw.place === 'object' ? raw.place : {};
-    if ((place.place_id ?? null) !== (d.place.place_id ?? null)) place = {};
-    place = Object.fromEntries(Object.entries(place).filter(([k]) => !PLACE_FIELDS.includes(k)));
-    for (const [k, v] of Object.entries(d.place)) if (k !== 'geometry') place[k] = clone(v);
-    place.geometry = { ...(place.geometry || {}), location: clone(d.place.geometry.location) };
-    if (!('place_id' in place)) place.place_id = null;
-    if (!Array.isArray(place.types)) place.types = ['point_of_interest'];
-    raw.place = place;
+    raw.place = writePlace(raw.place, d.place, ['point_of_interest']);
     raw.text = clone(d.text);
     for (const name of ['startTime', 'endTime']) {
       if (d[name]) raw[name] = d[name];
       else if (name in raw) raw[name] = null;
     }
+    raw.travelMode = d.travelMode ?? null;
     if (d.hotel) {
       raw.hotel = { ...(raw.hotel || {}), ...clone(d.hotel) };
       if (!Array.isArray(raw.hotel.travelerNames)) raw.hotel.travelerNames = [];
     } else {
       delete raw.hotel;
+    }
+  } else if (d.type === 'flight') {
+    raw.text = clone(d.text);
+    raw.confirmationNumber = d.confirmationNumber ?? '';
+    raw.flightInfo = { ...objectOr(raw.flightInfo), airline: clone(d.flightInfo.airline), number: d.flightInfo.number };
+    for (const side of ['depart', 'arrive']) {
+      const want = d[side];
+      const oldAirport = objectOr(raw[side]?.airport);
+      raw[side] = writeEndpoint(raw[side], want, {
+        type: side,
+        airport: {
+          ...oldAirport, iata: want.airport.iata, name: want.airport.name, cityName: want.airport.cityName,
+          googlePlace: writePlace(oldAirport.googlePlace, want.airport.googlePlace, ['airport']),
+        },
+      });
+    }
+  } else if (d.type === 'train') {
+    raw.text = clone(d.text);
+    raw.confirmationNumber = d.confirmationNumber ?? '';
+    raw.carrier = d.carrier ?? '';
+    for (const side of ['depart', 'arrive']) {
+      raw[side] = writeEndpoint(raw[side], d[side], { place: writePlace(raw[side]?.place, d[side].place, ['train_station']) });
+    }
+  } else if (d.type === 'rentalCar') {
+    raw.text = clone(d.text);
+    if (d.confirmationNumber) raw.confirmationNumber = d.confirmationNumber;
+    else if ('confirmationNumber' in raw) raw.confirmationNumber = '';
+    for (const side of ['pickUp', 'dropOff']) {
+      raw[side] = writeEndpoint(raw[side], d[side], {
+        airportOrGeo: clone(d[side].airportOrGeo),
+        place: writePlace(raw[side]?.place, d[side].place, ['locality']),
+      });
     }
   } else if (d.type === 'note') {
     raw.text = clone(d.text);
@@ -494,18 +600,56 @@ export function checkBlockSchema(block) {
   need(isObject(block?.addedBy) && typeof block.addedBy.type === 'string'
     && (Number.isInteger(userId) || (typeof userId === 'string' && /^\d+$/.test(userId))), 'addedBy');
   need(Array.isArray(block?.attachments), 'attachments');
+  const needPlace = (place, at) => {
+    need(isObject(place), at);
+    need(typeof place?.name === 'string' && place.name.length > 0, `${at}.name`);
+    need(Number.isFinite(place?.geometry?.location?.lat) && Number.isFinite(place?.geometry?.location?.lng), `${at}.geometry.location`);
+    need(typeof place?.formatted_address === 'string', `${at}.formatted_address`);
+    need(isObject(place) && 'place_id' in place && (place.place_id === null || typeof place.place_id === 'string'), `${at}.place_id`);
+    need(Array.isArray(place?.types), `${at}.types`);
+  };
+  // date YYYY-MM-DD, time null or HH:MM (the web app writes both keys).
+  const needWhen = (end, at) => {
+    need(isObject(end), at);
+    need(DATE.test(end?.date ?? ''), `${at}.date`);
+    need(isObject(end) && 'time' in end && (end.time === null || CLOCK.test(end.time)), `${at}.time`);
+  };
+  if (['flight', 'train', 'rentalCar'].includes(block?.type)) {
+    need(isOps(block.text), 'text');
+    if (block.type !== 'rentalCar' || 'confirmationNumber' in block) need(typeof block.confirmationNumber === 'string', 'confirmationNumber');
+  }
+  if (block?.type === 'flight') {
+    const airline = block.flightInfo?.airline;
+    need(isObject(airline) && ['iata', 'icao', 'name', 'localizedName'].every(k => typeof airline[k] === 'string' && airline[k].length > 0), 'flightInfo.airline');
+    need(Number.isInteger(block.flightInfo?.number) || (typeof block.flightInfo?.number === 'string' && /^\d+$/.test(block.flightInfo.number)), 'flightInfo.number');
+    need(Array.isArray(block.travelerNames), 'travelerNames');
+    for (const side of ['depart', 'arrive']) {
+      const end = block[side];
+      needWhen(end, side);
+      need(end?.type === side, `${side}.type`);
+      need(isObject(end?.airport) && /^[A-Z0-9]{3}$/.test(end.airport.iata ?? '') && typeof end.airport.name === 'string' && end.airport.name.length > 0
+        && typeof end.airport.cityName === 'string', `${side}.airport`);
+      needPlace(end?.airport?.googlePlace, `${side}.airport.googlePlace`);
+    }
+  } else if (block?.type === 'train') {
+    need(typeof block.carrier === 'string', 'carrier');
+    for (const side of ['depart', 'arrive']) {
+      needWhen(block[side], side);
+      needPlace(block[side]?.place, `${side}.place`);
+    }
+  } else if (block?.type === 'rentalCar') {
+    for (const side of ['pickUp', 'dropOff']) {
+      needWhen(block[side], side);
+      need(isObject(block[side]?.airportOrGeo) && typeof block[side].airportOrGeo.type === 'string' && isObject(block[side].airportOrGeo.value), `${side}.airportOrGeo`);
+      needPlace(block[side]?.place, `${side}.place`);
+    }
+  }
   if (block?.type === 'place') {
-    const place = block.place;
-    need(isObject(place), 'place');
-    need(typeof place?.name === 'string' && place.name.length > 0, 'place.name');
-    need(Number.isFinite(place?.geometry?.location?.lat) && Number.isFinite(place?.geometry?.location?.lng), 'place.geometry.location');
-    need(typeof place?.formatted_address === 'string', 'place.formatted_address');
-    need(isObject(place) && 'place_id' in place && (place.place_id === null || typeof place.place_id === 'string'), 'place.place_id');
-    need(Array.isArray(place?.types), 'place.types');
+    needPlace(block.place, 'place');
     need(isOps(block.text), 'text');
     need(typeof block.imageSize === 'string', 'imageSize');
     need(Array.isArray(block.upvotedBy), 'upvotedBy');
-    need('travelMode' in block, 'travelMode');
+    need('travelMode' in block && (block.travelMode === null || TRAVEL_MODES.includes(block.travelMode)), 'travelMode');
     need(Array.isArray(block.imageKeys), 'imageKeys');
     for (const name of ['startTime', 'endTime']) need(block[name] == null || CLOCK.test(block[name]), name);
     if (block.hotel !== undefined) {
@@ -606,20 +750,51 @@ function sectionCompares(section, si) {
     if (b.type === 'place' && typeof b.place?.name === 'string') out.push(textCompare(sectionPath(si, 'blocks', bi, 'place', 'name'), b.place.name));
     else if (b.type === 'note' && typeof b.text?.ops?.[0]?.insert === 'string') out.push(textCompare(sectionPath(si, 'blocks', bi, 'text', 'ops', 0, 'insert'), b.text.ops[0].insert));
     else if (b.type === 'checklist' && typeof b.title === 'string') out.push(textCompare(sectionPath(si, 'blocks', bi, 'title'), b.title));
+    else if (IDENTITY[b.type]) {
+      // Reservation blocks: their identity strings (a flight number is a number, so the airline
+      // code and the departure date stand in for it; text0 compares strings only).
+      for (const path of IDENTITY[b.type]) {
+        const value = path.reduce((node, step) => node?.[step], b);
+        if (typeof value === 'string') out.push(textCompare(sectionPath(si, 'blocks', bi, ...path), value));
+      }
+    }
   });
   return out;
 }
+
+const IDENTITY = {
+  flight: [['depart', 'airport', 'iata'], ['flightInfo', 'airline', 'iata'], ['flightInfo', 'number'], ['depart', 'date']],
+  train: [['depart', 'place', 'name'], ['depart', 'date']],
+  rentalCar: [['pickUp', 'place', 'name'], ['pickUp', 'date']],
+};
 
 function replace(path, holder, key, value) {
   return key in holder ? { p: path, od: holder[key], oi: value } : { p: path, oi: value };
 }
 
-// Native "Hotels and lodging" section, as the web app makes it (and src/lodging.mjs): no date key.
-function newHotelsSection(d, blocks) {
+// Native Hotels, Flights, Rental cars and Transit sections, as the web app makes them (and
+// src/lodging.mjs for Hotels): no date key.
+function newNativeSection(d, blocks) {
+  const { placeMarkerColor, placeMarkerIcon } = NATIVE_SECTIONS[d.type];
   return {
-    id: d.id, heading: d.heading, type: 'hotels', mode: 'placeList', blocks,
-    text: { ops: [{ insert: '\n' }] }, placeMarkerColor: '#e67e22', placeMarkerIcon: 'bed',
+    id: d.id, heading: d.heading, type: d.type, mode: 'placeList', blocks,
+    text: { ops: [{ insert: '\n' }] }, placeMarkerColor, placeMarkerIcon,
   };
+}
+
+// Where the web app puts a native section: after Notes and the native sections it ranks below
+// (Flights, Hotels, Rental cars, Transit), else before the first native section ranked above
+// it, else before the first day.
+function nativeIndex(sections, type) {
+  const rank = NATIVE_SECTIONS[type].rank;
+  const rankOf = s => (s.type === 'textOnly' ? 0 : NATIVE_SECTIONS[s.type]?.rank);
+  let after = -1;
+  sections.forEach((s, i) => { if (rankOf(s) !== undefined && rankOf(s) < rank) after = i; });
+  if (after !== -1) return after + 1;
+  const above = sections.findIndex(s => NATIVE_SECTIONS[s.type] && NATIVE_SECTIONS[s.type].rank > rank);
+  if (above !== -1) return above;
+  const day = sections.findIndex(s => s.mode === 'dayPlan');
+  return day === -1 ? sections.length : day;
 }
 
 function newListSection(d, blocks) {
@@ -642,7 +817,7 @@ export function buildApplyBatch(doc, desired, lock) {
   const touched = new Set();
   const writes = [];
   const inserts = [];
-  let hotelsInsert = null;
+  const nativeInserts = new Map();
   const deletes = [];
   for (const d of desired.sections) {
     const blocksFor = existing => d.blocks.map(b => {
@@ -652,11 +827,11 @@ export function buildApplyBatch(doc, desired, lock) {
       return writeBlock(want, old, owner);
     });
     if (d.new) {
-      if (d.type === 'hotels' && d.mode === 'placeList' && !hotelsInsert) {
-        hotelsInsert = newHotelsSection(d, blocksFor(false));
+      if (NATIVE_SECTIONS[d.type] && d.mode === 'placeList' && !nativeInserts.has(d.type)) {
+        nativeInserts.set(d.type, newNativeSection(d, blocksFor(false)));
         continue;
       }
-      if (d.type !== 'normal' || d.mode !== 'placeList') throw new SyncExit(EXIT.refused, `Only normal list and Hotels sections are created; ${d.key} is ${d.type}/${d.mode}`);
+      if (d.type !== 'normal' || d.mode !== 'placeList') throw new SyncExit(EXIT.refused, `Only normal list, Hotels, Flights, Rental cars and Transit sections are created; ${d.key} is ${d.type}/${d.mode}`);
       inserts.push(newListSection(d, blocksFor(false)));
       continue;
     }
@@ -685,13 +860,10 @@ export function buildApplyBatch(doc, desired, lock) {
   deletes.sort((a, b) => b - a);
   for (const si of deletes) components.push({ p: sectionPath(si), ld: sections[si] });
   const remaining = sections.filter((_, i) => !deletes.includes(i));
-  if (hotelsInsert) {
-    // Where the web app puts it: right after the Notes section, else before the first day.
-    const notes = remaining.findIndex(s => s.type === 'textOnly');
-    const day = remaining.findIndex(s => s.mode === 'dayPlan');
-    const hi = notes !== -1 ? notes + 1 : (day === -1 ? remaining.length : day);
-    components.push({ p: sectionPath(hi), li: hotelsInsert });
-    remaining.splice(hi, 0, hotelsInsert);
+  for (const section of [...nativeInserts.values()].sort((a, b) => NATIVE_SECTIONS[a.type].rank - NATIVE_SECTIONS[b.type].rank)) {
+    const at = nativeIndex(remaining, section.type);
+    components.push({ p: sectionPath(at), li: section });
+    remaining.splice(at, 0, section);
   }
   const firstDay = remaining.findIndex(s => s.mode === 'dayPlan');
   let at = firstDay === -1 ? remaining.length : firstDay;

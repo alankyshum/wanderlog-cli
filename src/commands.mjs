@@ -84,11 +84,16 @@ async function dispatchTrips(opts, subcommand, args) {
       const sync = await import('./sync-cli.mjs');
       return ok(await sync.fetchRedacted(opts, args[0]));
     }
+    case 'travel': {
+      await requireAuth(opts);
+      const reads = await import('./place-reads.mjs');
+      return ok(await reads.tripTravel(opts, args[0]));
+    }
     case 'delete':
       await requireAuth(opts);
       return ok(await trips.deleteTrip(opts, args[0], { confirm: opts.confirm }));
     default:
-      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|delete>');
+      throw new UsageError('Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|travel|delete>');
   }
 }
 
@@ -166,8 +171,12 @@ async function dispatchPlaces(opts, subcommand, args) {
     if (opts.format === 'json' || opts.json) return ok(result);
     return ok(places.formatCheckStatusReport(result));
   }
-  if (subcommand === 'resolve') return ok(await places.resolvePlace({ query: opts.query, placeId: opts.placeId, googleKey: opts.googleKey }));
   await requireAuth(opts);
+  if (subcommand === 'resolve' || subcommand === 'travel') {
+    const reads = await import('./place-reads.mjs');
+    if (subcommand === 'resolve') return ok(await reads.resolvePlace(opts, { query: opts.query, placeId: opts.placeId, near: opts.near, radius: opts.radius }));
+    return ok(await reads.placeTravel(opts, { from: opts.from, to: opts.to }));
+  }
   switch (subcommand) {
     case 'search':
       return ok(await places.searchPlace(opts, joinArgs(args)));
@@ -203,7 +212,7 @@ async function dispatchPlaces(opts, subcommand, args) {
     case 'list':
       return ok(await places.listPlaces(opts, args[0]));
     default:
-      throw new UsageError('Usage: wlog places <search|resolve|add|enrich-add|check-status|update|delete|move|list>');
+      throw new UsageError('Usage: wlog places <search|resolve|travel|add|enrich-add|check-status|update|delete|move|list>');
   }
 }
 
@@ -317,7 +326,7 @@ AUTH LOGIN
 FALLBACK
   wlog auth import-cookie --cookie 'connect.sid=...'
 `,
-    trips: `Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|delete> [tripKey] [options]
+    trips: `Usage: wlog trips <list|get|create|rename|set-dates|validate|fetch|travel|delete> [tripKey] [options]
 
   validate <tripKey> [--check-dates] [--forbid-hotel-bookings] [--json]
       Structure check. --check-dates also requires one dayPlan section per trip day, dated
@@ -325,11 +334,25 @@ FALLBACK
   fetch <tripKey> --redacted --out <file>
       Writes the trip document to a private (0600) file with editKey, viewKey, suggestKey,
       journalKey and every TripPlanKeys key replaced by [REDACTED].
+  travel <tripKey> --json
+      Read-only. Wanderlog's computed legs for each day: the lodging the day starts from, the
+      day's place cards, the lodging of that night; {date, from, to, travelMode, mode, seconds,
+      meters} from resources.distancesBetweenPlaces (seconds null when not computed yet).
   delete <tripKey> --confirm <tripKey>
       Moves the trip to Wanderlog's Trash; it is not deleted permanently. Permanent deletion is
       only in the web UI (Trash, then Delete permanently).`,
     sections: 'Usage: wlog sections <list|add|rename|add-note|update-note|delete|move> [tripKey] [options]\n  add-note <tripKey> <sectionId> --notes <text>\n  update-note <tripKey> <sectionId> <blockIndex> --notes <text> --expected-notes <old text> --confirm <blockId>',
-    places: `Usage: wlog places <search|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
+    places: `Usage: wlog places <search|resolve|travel|add|enrich-add|check-status|update|delete|move|list> [tripKey] [options]
+
+RESOLVE (read-only, Wanderlog's own Places search; no Google key)
+  wlog places resolve --query <text> [--near lat,lng] [--radius m] --json
+  wlog places resolve --place-id <id> --json
+  Ranked candidates {rank, place_id, name, lat, lng, address, types}, up to 5. Never picks one:
+  pin the chosen place_id in the plan file.
+
+TRAVEL (read-only)
+  wlog places travel --from <place_id> --to <place_id> --json
+  Wanderlog's travel time per mode: {driving|transit|walking: {seconds, meters, text} | null}.
 
 ENRICH ADD
   wlog places enrich-add <tripKey> <sectionId> --query <text> [--duration <text>] [--cost <text>] [--notes <text>]

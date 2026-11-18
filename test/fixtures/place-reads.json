@@ -1,0 +1,309 @@
+{
+  "_source": "spike S7 / W6b read-only captures 2026-11-17; polylines, photos and reviews dropped",
+  "searchPlaces": {
+    "success": true,
+    "data": [
+      {
+        "placeId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+        "name": "Wong Tai Sin",
+        "longitude": 114.19385,
+        "latitude": 22.341659999999997,
+        "categories": [
+          "Subway station"
+        ],
+        "numRatings": 340,
+        "rating": 3.9,
+        "address": "Chuk Un, Kowloon, Hong Kong"
+      },
+      {
+        "placeId": "ChIJNehgodkGBDQRl48Qf9gWgB8",
+        "name": "MTR Wong Tai Sin Station",
+        "longitude": 114.19568299999999,
+        "latitude": 22.340806999999998,
+        "categories": [
+          "Bus station"
+        ],
+        "numRatings": 2,
+        "rating": 3,
+        "address": "Chuk Un, Kowloon, Hong Kong"
+      },
+      {
+        "placeId": "ChIJwZ-Rp9kGBDQRVIc6VIiQvxA",
+        "name": "MTR Wong Tai Sin Station",
+        "longitude": 114.195332,
+        "latitude": 22.341141,
+        "categories": [
+          "Bus station"
+        ],
+        "numRatings": 7,
+        "rating": 3.9,
+        "address": "Chuk Un, Kowloon, Hong Kong"
+      }
+    ]
+  },
+  "details": {
+    "ChIJ31a6-dgGBDQRDBc7avv7pyA": {
+      "success": true,
+      "data": {
+        "name": "Wong Tai Sin",
+        "place_id": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+        "geometry": {
+          "location": {
+            "lat": 22.341659999999997,
+            "lng": 114.19385
+          }
+        },
+        "formatted_address": "Chuk Un, Kowloon, Hong Kong",
+        "types": [
+          "subway_station"
+        ],
+        "rating": 3.9,
+        "business_status": "OPERATIONAL"
+      }
+    },
+    "ChIJncZGzPPiAzQRnjaSGIKQ9fk": {
+      "success": true,
+      "data": {
+        "name": "Hong Kong International Airport",
+        "place_id": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+        "geometry": {
+          "location": {
+            "lat": 22.3134736,
+            "lng": 113.91372829999999
+          }
+        },
+        "formatted_address": "1 Sky Plaza Rd, Chek Lap Kok, New Territories, Hong Kong",
+        "types": [
+          "international_airport",
+          "airport"
+        ],
+        "rating": 4.4,
+        "business_status": "OPERATIONAL"
+      }
+    }
+  },
+  "allDistanceInfoForPlace": {
+    "success": true,
+    "data": {
+      "driving": {
+        "fromPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+        "fromLat": 22.341659999999997,
+        "fromLng": 114.19385,
+        "toPlaceId": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+        "toLat": 22.3134736,
+        "toLng": 113.91372829999999,
+        "travelMode": "driving",
+        "route": {
+          "distance": {
+            "value": 37719,
+            "text": "38 km"
+          },
+          "duration": {
+            "value": 2045.5,
+            "text": "34 mins"
+          }
+        }
+      },
+      "transit": {
+        "fromPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+        "toPlaceId": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+        "travelMode": "transit",
+        "route": {
+          "distance": {
+            "value": 37475,
+            "text": "37.5 km"
+          },
+          "duration": {
+            "value": 2210,
+            "text": "37 min"
+          }
+        }
+      },
+      "walking": {
+        "fromPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+        "fromLat": 22.341659999999997,
+        "fromLng": 114.19385,
+        "toPlaceId": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+        "toLat": 22.3134736,
+        "toLng": 113.91372829999999,
+        "travelMode": "walking",
+        "route": {
+          "distance": {
+            "value": 40046.8,
+            "text": "40 km"
+          },
+          "duration": {
+            "value": 28647.6,
+            "text": "7 hrs 57 mins"
+          }
+        }
+      }
+    }
+  },
+  "allAirlines": {
+    "success": true,
+    "data": [
+      {
+        "iata": "CX",
+        "icao": "CPA",
+        "name": "Cathay Pacific",
+        "localizedName": "Cathay Pacific"
+      },
+      {
+        "iata": "HX",
+        "icao": "CRK",
+        "name": "Hong Kong Airlines",
+        "localizedName": "Hong Kong Airlines"
+      },
+      {
+        "iata": "JL",
+        "icao": "JTL",
+        "name": "Jet Linx Aviation",
+        "localizedName": "Jet Linx Aviation"
+      },
+      {
+        "iata": "JL",
+        "icao": "JAL",
+        "name": "Japan Airlines",
+        "localizedName": "Japan Airlines"
+      },
+      {
+        "iata": "UO",
+        "icao": "HKE",
+        "name": "HK Express",
+        "localizedName": "HK Express"
+      }
+    ]
+  },
+  "s7Distances": {
+    "[\"ChIJncZGzPPiAzQRnjaSGIKQ9fk\",\"ChIJwXMVrLriAzQRcMQVFWJ-Hsg\",\"driving\"]": {
+      "fromPlaceId": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+      "fromLat": 22.3134736,
+      "fromLng": 113.91372829999999,
+      "toPlaceId": "ChIJwXMVrLriAzQRcMQVFWJ-Hsg",
+      "toLat": 22.2891835,
+      "toLng": 113.9412863,
+      "travelMode": "driving",
+      "route": {
+        "distance": {
+          "value": 6978.1,
+          "text": "7 km"
+        },
+        "duration": {
+          "value": 635.8,
+          "text": "11 mins"
+        }
+      }
+    },
+    "[\"ChIJwXMVrLriAzQRcMQVFWJ-Hsg\",\"ChIJ31a6-dgGBDQRDBc7avv7pyA\",\"driving\"]": {
+      "fromPlaceId": "ChIJwXMVrLriAzQRcMQVFWJ-Hsg",
+      "fromLat": 22.2891835,
+      "fromLng": 113.9412863,
+      "toPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+      "toLat": 22.341659999999997,
+      "toLng": 114.19385,
+      "travelMode": "driving",
+      "route": {
+        "distance": {
+          "value": 33158,
+          "text": "33 km"
+        },
+        "duration": {
+          "value": 1706.1,
+          "text": "28 mins"
+        }
+      }
+    },
+    "[\"ChIJ31a6-dgGBDQRDBc7avv7pyA\",\"ChIJ7wKLka4IAWARCByidG5EGrY\",\"driving\"]": {
+      "fromPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+      "fromLat": 22.341659999999997,
+      "fromLng": 114.19385,
+      "toPlaceId": "ChIJ7wKLka4IAWARCByidG5EGrY",
+      "toLat": 34.985849,
+      "toLng": 135.7587667,
+      "travelMode": "driving",
+      "route": {
+        "distance": {
+          "value": 3780100.6,
+          "text": "3,780 km"
+        },
+        "duration": {
+          "value": 194190.2,
+          "text": "2 days 5 hrs"
+        }
+      }
+    },
+    "[\"ChIJ7wKLka4IAWARCByidG5EGrY\",\"ChIJ9_rNIxO5AGARiI-QjZ-ncfE\",\"driving\"]": {
+      "fromPlaceId": "ChIJ7wKLka4IAWARCByidG5EGrY",
+      "fromLat": 34.985849,
+      "fromLng": 135.7587667,
+      "toPlaceId": "ChIJ9_rNIxO5AGARiI-QjZ-ncfE",
+      "toLat": 34.431999399999995,
+      "toLng": 135.23660189999998,
+      "travelMode": "driving",
+      "route": {
+        "distance": {
+          "value": 99155.8,
+          "text": "99 km"
+        },
+        "duration": {
+          "value": 5602.7,
+          "text": "1 hr 33 mins"
+        }
+      }
+    },
+    "[\"ChIJHV6ZSQYHBDQR1hI5y2nWmaU\",\"ChIJncZGzPPiAzQRnjaSGIKQ9fk\",\"transit\"]": {
+      "fromPlaceId": "ChIJHV6ZSQYHBDQR1hI5y2nWmaU",
+      "toPlaceId": "ChIJncZGzPPiAzQRnjaSGIKQ9fk",
+      "travelMode": "transit",
+      "route": {
+        "distance": {
+          "value": 37418,
+          "text": "37.4 km"
+        },
+        "duration": {
+          "value": 2164,
+          "text": "37 min"
+        }
+      }
+    },
+    "[\"ChIJ31a6-dgGBDQRDBc7avv7pyA\",\"ChIJHV6ZSQYHBDQR1hI5y2nWmaU\",\"walking\"]": {
+      "fromPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+      "fromLat": 22.341659999999997,
+      "fromLng": 114.19385,
+      "toPlaceId": "ChIJHV6ZSQYHBDQR1hI5y2nWmaU",
+      "toLat": 22.341552399999998,
+      "toLng": 114.19520639999999,
+      "travelMode": "walking",
+      "route": {
+        "distance": {
+          "value": 139.7,
+          "text": "140 m"
+        },
+        "duration": {
+          "value": 100.6,
+          "text": "2 mins"
+        }
+      }
+    },
+    "[\"ChIJHV6ZSQYHBDQR1hI5y2nWmaU\",\"ChIJ31a6-dgGBDQRDBc7avv7pyA\",\"walking\"]": {
+      "fromPlaceId": "ChIJHV6ZSQYHBDQR1hI5y2nWmaU",
+      "fromLat": 22.341552399999998,
+      "fromLng": 114.19520639999999,
+      "toPlaceId": "ChIJ31a6-dgGBDQRDBc7avv7pyA",
+      "toLat": 22.341659999999997,
+      "toLng": 114.19385,
+      "travelMode": "walking",
+      "route": {
+        "distance": {
+          "value": 139.7,
+          "text": "140 m"
+        },
+        "duration": {
+          "value": 100.6,
+          "text": "2 mins"
+        }
+      }
+    }
+  }
+}

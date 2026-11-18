@@ -15,7 +15,7 @@ const VALUE_FLAGS = new Set([
   'id', 'amount', 'currency', 'category', 'description', 'date', 'paid-by', 'split-with',
   'external-id', 'owner-tag', 'expect-external-id', 'expect-description',
   'desired', 'last', 'snapshot', 'out-snapshot', 'out-report', 'expect-version', 'ack-drift', 'from-snapshot', 'target-lock',
-  'out', 'place-id',
+  'out', 'place-id', 'near', 'radius', 'from', 'to',
 ]);
 
 const OPTION_KEYS = {

@@ -31,7 +31,8 @@ Google Places commands need `GOOGLE_MAPS_API_KEY` or `--google-key`; the documen
 | `sections update-note <tripKey> <sectionId> <blockIndex> --notes "..." --expected-notes "<current text>" --confirm <blockId>` | Replace an exact unformatted note with ID and old-text guards; the server compares the section heading/date, block type and old text in the same batch (exit 8 when the note moved or changed: nothing written); re-fetch verifies (exit 7: list before retrying). |
 | `sections delete <tripKey> <sectionId> --confirm <sectionId>` | Delete a section. |
 | `places search "<query>"` / `places list <tripKey>` | Search or list normalized place blocks. |
-| `places resolve (--query "..." \| --place-id <id>) [--google-key <key>] --json` | Google place fields for `plan.yaml` (`plan_place: {google_id, address, lat, lng}`); no Wanderlog read or write. |
+| `places resolve (--query "..." [--near lat,lng] [--radius m] \| --place-id <id>) --json` | Ranked candidates `{rank, place_id, name, lat, lng, address, types}` from Wanderlog's own Places search (read-only, no Google key); never picks one, the plan file pins the `place_id`. |
+| `places travel --from <place_id> --to <place_id> --json`, `trips travel <tripKey> --json` | Read-only travel times: per mode between two places; a trip's day legs (lodging, cards, lodging) with mode and seconds. |
 | `places add <tripKey> <sectionId> --name "..." --lat <lat> --lng <lng> --address "..." [--notes "..."] [--start HH:MM] [--end HH:MM] [--no-ai]` | Add a manual place only when Google cannot resolve it. |
 | `places update <tripKey> <sectionId> <blockIndex> [...]` / `places move <tripKey> <fromSectionId> <blockIndex> <toSectionId> [--to-index <n>]` | Update or move a place. |
 | `places delete <tripKey> <sectionId> <blockIndex> --confirm <blockIndex>` | Delete a place. |
