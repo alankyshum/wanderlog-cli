@@ -14,6 +14,7 @@ The vault's `trip_calendar.py TRIP --events-json F` writes this document. `wlog 
       "uid": "tf-<trip_key>-day-2026-12-03",
       "title": "Day 1 — Old town",
       "all_day": true,
+      "busy": false,
       "date": "2026-12-03",
       "description": "1. Cafe\n2. Coastal walk"
     },
@@ -43,6 +44,7 @@ Rules (unknown keys are rejected at every level):
 | `title` (event) | non-empty string, at most 300 characters |
 | `all_day: true` | needs `date` (`YYYY-MM-DD`); `start`, `end`, `tz` are not allowed. ICS: `DTSTART;VALUE=DATE` and an exclusive `DTEND` on the next day |
 | `all_day: false` | needs `start` and `end` (`YYYY-MM-DDTHH:MM`, wall-clock time in `tz`), `end` after `start` (may be a later date), and `tz` (IANA name). `date` is not allowed. ICS: `DTSTART;TZID=<tz>` / `DTEND;TZID=<tz>` |
+| `busy` | optional boolean; omitted or `true` is busy (default ICS behavior), `false` emits `TRANSP:TRANSPARENT` and `X-MICROSOFT-CDO-BUSYSTATUS:FREE` |
 | `location` | optional object or `null`: `name`, `address` (strings, at most 500), `lat`/`lng` (numbers, both or neither). ICS: `LOCATION:` name and address joined by `, `; `GEO:` from lat/lng |
 | `description` | optional string or `null`, at most 8000 characters |
 

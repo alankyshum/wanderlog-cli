@@ -77,6 +77,7 @@ test('validator accepts the fixture and rejects schema violations', () => {
     [doc => { doc.events[1].end = doc.events[1].start; }, 'must be after start'],
     [doc => { doc.events[1].location.lng = undefined; delete doc.events[1].location.lng; }, 'lat and lng'],
     [doc => { doc.events[1].private_note = 'x'; }, 'unknown key'],
+    ...[null, 'false', 0, {}].map(value => [doc => { doc.events[0].busy = value; }, '$.events[0].busy: must be true or false']),
     [doc => { doc.events[0].start = '2026-12-03T09:00'; }, 'not allowed when all_day is true'],
     [doc => { doc.events[2].title = ''; }, 'must not be empty'],
   ];
@@ -88,6 +89,25 @@ test('validator accepts the fixture and rejects schema violations', () => {
     assert.ok(result.errors.some(e => e.includes(expected)), `${expected}: ${result.errors}`);
   }
   assert.ok(validateEventsDocument(FIXTURE, { planId: 'ELSE' }).errors[0].includes('planId'));
+});
+
+test('free and busy flags survive validation and the published feed', async t => {
+  guardFetch(t);
+  const env = testEnv();
+  const doc = clone(FIXTURE);
+  doc.events[0].busy = false;
+  doc.events[1].busy = true;
+  const result = validateEventsDocument(doc);
+  assert.equal(result.ok, true);
+  assert.equal(result.doc.events[0].busy, false);
+  assert.equal(result.doc.events[1].busy, true);
+  assert.equal((await putEvents(env, 'FIXTRIP1', doc)).status, 200);
+  assert.equal((await env.WANDERLOG_KV.get(tripEventsKey('FIXTRIP1'), 'json')).events[0].busy, false);
+  const feed = await (await getFeed(env)).text();
+  const blocks = fileEventBlocks(feed, 'FIXTRIP1');
+  assert.match(blocks[0], /TRANSP:TRANSPARENT\r\nX-MICROSOFT-CDO-BUSYSTATUS:FREE\r\n/);
+  for (const block of blocks.slice(1)) assert.doesNotMatch(block, /TRANSP:|X-MICROSOFT-CDO-BUSYSTATUS:/);
+  assert.deepEqual(blocks, fileEventBlocks(renderEventsIcs(result.doc), 'FIXTRIP1'));
 });
 
 test('render: all-day and timed events serialise with stable UIDs and fixed DTSTAMP', () => {

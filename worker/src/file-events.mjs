@@ -19,7 +19,7 @@ const UID_TAIL_RE = /^[A-Za-z0-9._-]+$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const LOCAL_DT_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/;
 const DOC_KEYS = new Set(['schema', 'trip_key', 'title', 'events']);
-const EVENT_KEYS = new Set(['uid', 'title', 'all_day', 'date', 'start', 'end', 'tz', 'location', 'description']);
+const EVENT_KEYS = new Set(['uid', 'title', 'all_day', 'busy', 'date', 'start', 'end', 'tz', 'location', 'description']);
 const LOCATION_KEYS = new Set(['name', 'address', 'lat', 'lng']);
 
 export function tripEventsKey(planId) {
@@ -69,11 +69,13 @@ function normaliseEvent(event, path, tripKey, seen, err) {
     seen.add(uid);
   }
   checkString(event.title, `${path}.title`, MAX_TITLE, err, { required: true });
+  if (event.busy !== undefined && typeof event.busy !== 'boolean') err(`${path}.busy`, 'must be true or false');
   if (event.description !== undefined && event.description !== null) {
     checkString(event.description, `${path}.description`, MAX_DESCRIPTION, err, { required: false });
   }
 
   const out = { uid, title: event.title, all_day: event.all_day };
+  if (event.busy !== undefined) out.busy = event.busy;
   if (event.all_day === true) {
     for (const key of ['start', 'end', 'tz']) if (event[key] !== undefined) err(`${path}.${key}`, 'not allowed when all_day is true');
     if (!isRealDate(event.date)) err(`${path}.date`, 'must be a YYYY-MM-DD date');
@@ -131,6 +133,7 @@ export function fileEventsToIcsEvents(doc) {
     const common = {
       uid: `${event.uid}@${UID_NAMESPACE}`,
       summary: event.title,
+      busy: event.busy,
       location: locationText,
       lat: location.lat,
       lng: location.lng,

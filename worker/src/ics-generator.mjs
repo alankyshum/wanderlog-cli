@@ -109,6 +109,7 @@ function eventToLines(event, dtstamp) {
   ];
   const end = event.end ? formatDtProp('DTEND', event.end) : null;
   if (end) lines.push(end);
+  if (event.busy === false) lines.push('TRANSP:TRANSPARENT', 'X-MICROSOFT-CDO-BUSYSTATUS:FREE');
   if (event.location) lines.push('LOCATION:' + escapeText(event.location));
   if (isCoordinate(event.lat) && isCoordinate(event.lng)) lines.push(`GEO:${event.lat};${event.lng}`);
   if (event.description) lines.push('DESCRIPTION:' + escapeText(event.description));
